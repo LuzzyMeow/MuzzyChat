@@ -6,6 +6,9 @@ import { AppController } from './app.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { AgentModule } from './agent/agent.module';
+import { LlmModule } from './llm/llm.module';
+import { ConversationModule } from './conversation/conversation.module';
+import { ChatGroupModule } from './chat-group/chat-group.module';
 
 /**
  * Walk up from startDir to find the monorepo root containing `.env`.
@@ -35,6 +38,9 @@ function findEnvPath(startDir: string): string {
     PrismaModule,
     GatewayModule,
     AgentModule,
+    LlmModule,
+    ConversationModule,
+    ChatGroupModule,
   ],
   controllers: [AppController],
 })

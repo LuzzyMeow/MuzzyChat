@@ -17,9 +17,10 @@
     "db:push": "cd ../.. && prisma db push"
   },
   "dependencies": {
-    "@langchain/core": "^0.3.0",
+    "@langchain/core": "^1.1.47",
     "@langchain/langgraph": "^1.3.0",
     "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
+    "@langchain/openai": "^1.4.6",
     "@nestjs/common": "^11.1.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.1.0",
