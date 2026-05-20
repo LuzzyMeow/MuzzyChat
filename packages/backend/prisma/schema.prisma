@@ -1,0 +1,417 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ConversationType {
+  group
+  dm
+}
+
+enum OrchestrationMode {
+  parallel
+  supervisor
+}
+
+enum MessageRole {
+  user
+  agent
+  system
+}
+
+enum MessageType {
+  text
+  tool_call
+  tool_result
+  approval_card
+  system_notice
+  agent_thinking
+  task_plan
+  task_result
+  summary
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+  auto_rejected
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+  critical
+}
+
+enum StrategyScope {
+  personal
+  group
+  global
+}
+
+enum StrategyResult {
+  success
+  failure
+}
+
+enum StrategyCardStatus {
+  active
+  archived
+  deleted
+}
+
+enum SkillStatus {
+  active
+  stale
+  deprecated
+  archived
+}
+
+enum SkillTrustLevel {
+  builtin
+  trusted
+  agent_created
+}
+
+model Conversation {
+  id        String           @id @default(cuid())
+  type      ConversationType @default(group)
+  title     String?
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+  deletedAt DateTime?        @map("deleted_at")
+
+  messages          Message[]
+  approvalRequests  ApprovalRequest[]
+  auditTrails       AuditTrail[]
+  chatGroup         ChatGroup?
+  strategyCards     StrategyCard[]
+  longTermMemories  LongTermMemory[]
+  skills            Skill[]
+  skillUsageLogs    SkillUsageLog[]
+
+  @@map("conversations")
+}
+
+model Agent {
+  id                String   @id @default(cuid())
+  name              String
+  avatarDescription String?  @map("avatar_description") @db.Text
+  systemPrompt      String   @map("system_prompt") @db.Text
+  assignedModelId   String?  @map("assigned_model_id")
+  tools             String[] @default([])
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  assignedModel      ProviderModel?     @relation(fields: [assignedModelId], references: [id], onDelete: SetNull)
+  messages           Message[]
+  groupMembers       GroupMember[]
+  approvalRequests   ApprovalRequest[]
+  auditTrails        AuditTrail[]
+  strategyCards      StrategyCard[]
+  longTermMemories   LongTermMemory[]
+  dreamLightStates   DreamLightState[]
+  dreamRemStates     DreamRemState[]
+  dreamDeepStates    DreamDeepState[]
+  dreamSweeps        DreamSweep[]
+  supervisedGroups   ChatGroup[]
+  createdSkills      Skill[]
+  skillUsageLogs     SkillUsageLog[]
+
+  @@map("agents")
+}
+
+model ChatGroup {
+  id                       String            @id @default(cuid())
+  conversationId           String            @unique @map("conversation_id")
+  name                     String
+  orchestrationMode        OrchestrationMode @default(parallel) @map("orchestration_mode")
+  dynamicDiscussionEnabled Boolean           @default(false) @map("dynamic_discussion_enabled")
+  supervisorAgentId        String?           @map("supervisor_agent_id")
+  createdAt                DateTime          @default(now()) @map("created_at")
+  updatedAt                DateTime          @updatedAt @map("updated_at")
+  deletedAt                DateTime?         @map("deleted_at")
+
+  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  supervisorAgent Agent?        @relation(fields: [supervisorAgentId], references: [id], onDelete: SetNull)
+  members         GroupMember[]
+
+  @@map("chat_groups")
+}
+
+model GroupMember {
+  id       String   @id @default(cuid())
+  groupId  String   @map("group_id")
+  agentId  String   @map("agent_id")
+  enabled  Boolean  @default(true)
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  group ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  agent Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, agentId])
+  @@map("group_members")
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String      @map("conversation_id")
+  role           MessageRole
+  agentId        String?     @map("agent_id")
+  content        String      @db.Text
+  messageType    MessageType @default(text) @map("message_type")
+  parentId       String?     @map("parent_id")
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agent        Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  parent       Message?     @relation("MessageThread", fields: [parentId], references: [id], onDelete: SetNull)
+  replies      Message[]    @relation("MessageThread")
+
+  @@index([conversationId, createdAt])
+  @@index([agentId, createdAt])
+  @@map("messages")
+}
+
+model ApprovalRequest {
+  id             String         @id @default(cuid())
+  agentId        String         @map("agent_id")
+  conversationId String         @map("conversation_id")
+  target         String         @db.Text
+  operation      String
+  toolName       String?        @map("tool_name")
+  matchedRule    String?        @map("matched_rule")
+  reason         String         @db.Text
+  riskLevel      RiskLevel      @map("risk_level")
+  status         ApprovalStatus @default(pending)
+  userDecision   String?        @map("user_decision") @db.VarChar(20)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  resolvedAt     DateTime?      @map("resolved_at")
+
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("approval_requests")
+}
+
+model AuditTrail {
+  id             String   @id @default(cuid())
+  action         String
+  agentId        String?  @map("agent_id")
+  conversationId String?  @map("conversation_id")
+  details        Json
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  agent        Agent?        @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@map("audit_trails")
+}
+
+model ModelProvider {
+  id              String   @id @default(cuid())
+  name            String
+  apiBase         String   @map("api_base") @db.Text
+  apiKeyEncrypted String   @map("api_key_encrypted") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  models ProviderModel[]
+
+  @@map("model_providers")
+}
+
+model ProviderModel {
+  id                     String   @id @default(cuid())
+  providerId             String   @map("provider_id")
+  modelId                String   @map("model_id")
+  displayName            String   @map("display_name")
+  tokenLimit             Int?     @map("token_limit")
+  contextWindow          Int?     @map("context_window")
+  supportsFunctionCalling Boolean @default(true) @map("supports_function_calling")
+  roleHints              String[] @default([]) @map("role_hints")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  provider ModelProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  agents   Agent[]
+
+  @@unique([providerId, modelId])
+  @@map("provider_models")
+}
+
+model Settings {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model StrategyCard {
+  id                   String            @id @default(cuid())
+  agentId              String            @map("agent_id")
+  scope                StrategyScope     @default(personal)
+  goal                 String            @db.Text
+  toolsUsed            String[]          @default([]) @map("tools_used")
+  result               StrategyResult
+  lesson               String            @db.Text
+  embedding            Unsupported("vector(1536)")?
+  score                Decimal           @db.Decimal(5, 4)
+  sourceConversationId String?           @map("source_conversation_id")
+  sourceMessageIds     String[]          @default([]) @map("source_message_ids")
+  status               StrategyCardStatus @default(active)
+  lastRetrievedAt      DateTime?          @map("last_retrieved_at")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  agent              Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  sourceConversation Conversation? @relation(fields: [sourceConversationId], references: [id], onDelete: SetNull)
+
+  @@index([agentId, scope, score(sort: Desc)])
+  @@index([sourceConversationId])
+  @@map("strategy_cards")
+}
+
+model LongTermMemory {
+  id                   String   @id @default(cuid())
+  agentId              String   @map("agent_id")
+  content              String   @db.Text
+  embedding            Unsupported("vector(1536)")?
+  score                Decimal  @db.Decimal(5, 4)
+  frequency            Int      @default(0)
+  relevance            Decimal  @db.Decimal(5, 4) @default(0)
+  queryDiversity       Decimal  @db.Decimal(5, 4) @default(0)
+  recency              Decimal  @db.Decimal(5, 4) @default(0)
+  consolidation        Decimal  @db.Decimal(5, 4) @default(0)
+  conceptualRichness   Decimal  @db.Decimal(5, 4) @default(0)
+  conceptualTags       Json?    @map("conceptual_tags")
+  sourceConversationId String?  @map("source_conversation_id")
+  sourceMessageIds     String[] @default([]) @map("source_message_ids")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  agent              Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  sourceConversation Conversation? @relation(fields: [sourceConversationId], references: [id], onDelete: SetNull)
+
+  @@index([agentId, score(sort: Desc)])
+  @@map("long_term_memories")
+}
+
+model DreamLightState {
+  id            String   @id @default(cuid())
+  agentId       String   @map("agent_id")
+  sweepId       String   @map("sweep_id")
+  candidatePool Json     @map("candidate_pool")
+  dedupStats    Json     @map("dedup_stats")
+  executedAt    DateTime @default(now()) @map("executed_at")
+
+  agent Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  sweep DreamSweep @relation(fields: [sweepId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, executedAt(sort: Desc)])
+  @@index([agentId, sweepId])
+  @@map("dream_light_states")
+}
+
+model DreamRemState {
+  id           String   @id @default(cuid())
+  agentId      String   @map("agent_id")
+  sweepId      String   @map("sweep_id")
+  phaseSignals Json     @map("phase_signals")
+  insights     Json
+  executedAt   DateTime @default(now()) @map("executed_at")
+
+  agent Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  sweep DreamSweep @relation(fields: [sweepId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, executedAt(sort: Desc)])
+  @@index([agentId, sweepId])
+  @@map("dream_rem_states")
+}
+
+model DreamDeepState {
+  id            String   @id @default(cuid())
+  agentId       String   @map("agent_id")
+  sweepId       String   @map("sweep_id")
+  checkpoint    Json
+  promotedCount Int      @default(0) @map("promoted_count")
+  executedAt    DateTime @default(now()) @map("executed_at")
+
+  agent Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  sweep DreamSweep @relation(fields: [sweepId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, executedAt(sort: Desc)])
+  @@index([agentId, sweepId])
+  @@map("dream_deep_states")
+}
+
+model DreamSweep {
+  id          String   @id @default(cuid())
+  agentId     String   @map("agent_id")
+  sweepId     String   @map("sweep_id")
+  status      String   @default("running")
+  startedAt   DateTime @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  agent        Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  lightStates  DreamLightState[]
+  remStates    DreamRemState[]
+  deepStates   DreamDeepState[]
+
+  @@unique([agentId, sweepId])
+  @@index([agentId, status])
+  @@map("dream_sweeps")
+}
+
+model Skill {
+  id                   String          @id @default(cuid())
+  name                 String
+  description          String          @db.Text
+  category             String
+  filePath             String          @map("file_path") @db.Text
+  successRate          Decimal         @db.Decimal(5, 4) @default(0)
+  usageCount           Int             @default(0) @map("usage_count")
+  lastUsedAt           DateTime?       @map("last_used_at")
+  status               SkillStatus     @default(active)
+  embedding            Unsupported("vector(1536)")?
+  sourceConversationId String?         @map("source_conversation_id")
+  trustLevel           SkillTrustLevel @default(agent_created) @map("trust_level")
+  createdByAgentId     String?         @map("created_by_agent_id")
+  prerequisites        String[]        @default([])
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  sourceConversation Conversation?    @relation(fields: [sourceConversationId], references: [id], onDelete: SetNull)
+  createdBy          Agent?            @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  usageLogs          SkillUsageLog[]
+
+  @@index([status, category])
+  @@map("skills")
+}
+
+model SkillUsageLog {
+  id              String   @id @default(cuid())
+  skillId         String   @map("skill_id")
+  agentId         String   @map("agent_id")
+  conversationId  String?  @map("conversation_id")
+  success         Boolean  @default(true)
+  executionTimeMs Int      @map("execution_time_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  skill         Skill        @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  agent         Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversation  Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([skillId, createdAt])
+  @@map("skill_usage_logs")
+}

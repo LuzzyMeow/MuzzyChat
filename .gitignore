@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+
+workspace/
+uploads/
+skills/.curator_backup/
+
+coverage/
+playwright-report/
+test-results/
+
+*.tsbuildinfo
+
+# 项目设计文档（内部资料，不推送）
+doc/
+
+# IDE 配置与规则（内部配置，不推送）
+.trae/

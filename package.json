@@ -1,0 +1,37 @@
+{
+  "name": "muzzychat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MuzzyChat —— 多智能体群聊协作平台",
+  "scripts": {
+    "dev": "pnpm --parallel dev",
+    "dev:backend": "pnpm --filter @muzzychat/backend dev",
+    "dev:frontend": "pnpm --filter @muzzychat/frontend dev",
+    "build": "pnpm --parallel build",
+    "build:backend": "pnpm --filter @muzzychat/backend build",
+    "build:frontend": "pnpm --filter @muzzychat/frontend build",
+    "lint": "pnpm --parallel lint",
+    "typecheck": "pnpm --parallel typecheck",
+    "test": "pnpm --parallel test",
+    "test:e2e": "pnpm --filter @muzzychat/frontend test:e2e",
+    "db:migrate": "pnpm --filter @muzzychat/backend db:migrate",
+    "db:generate": "pnpm --filter @muzzychat/backend db:generate",
+    "db:studio": "pnpm --filter @muzzychat/backend db:studio"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/engines",
+      "esbuild",
+      "prisma",
+      "unrs-resolver"
+    ]
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.2"
+  }
+}
