@@ -14,6 +14,7 @@ export class UpdateAgentDto {
 
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(4000)
   systemPrompt?: string;
 

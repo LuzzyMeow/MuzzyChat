@@ -2,6 +2,8 @@
 
 多智能体群聊协作平台 —— 一套可从零开始本地运行的 AI Agent 群聊系统。
 
+> GitHub: [LuzzyMeow/MuzzyChat](https://github.com/LuzzyMeow/MuzzyChat)
+
 ## 项目概述
 
 MuzzyChat 旨在构建一套**从底层架构到上层体验完全自主可控**、**能随时间自我进化**的多智能体群聊系统。它不是对现有产品的修改，而是从零生长出来的、拥有自我记忆和学习能力的全新平台。
@@ -136,7 +138,7 @@ pnpm dev:frontend  # http://localhost:5173
 | 阶段 | 内容 | 状态 |
 |:---|:---|:---|
 | Phase 1 | 基础设施：项目骨架、数据库、Agent 工坊 | 已完成 |
-| Phase 2 | 核心对话：单 Agent 私聊 + 多 Agent 群聊 | 进行中 |
+| Phase 2 | 核心对话：单 Agent 私聊 + 多 Agent 群聊 | 进行中（Agent CRUD 已完成） |
 | Phase 3 | 双模式引擎：Parallel + Supervisor 发言模式 | 待开始 |
 | Phase 4 | 工具与安全：文件交互、命令行、审批卡 | 待开始 |
 | Phase 5 | 记忆与学习：ACE 三层记忆 + 梦境系统 | 待开始 |
