@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AgentService } from './agent.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../generated/prisma/client';
 
 // Minimal type for the mock that satisfies PrismaService usage in AgentService
 interface MockPrismaTx {
@@ -24,7 +25,7 @@ describe('AgentService', () => {
       update: jest.fn(),
     },
     $transaction: jest.fn(
-      (cb: (_tx: MockPrismaTx) => unknown): unknown => cb(mockPrisma),
+      (cb: (_tx: MockPrismaTx) => Promise<unknown>): Promise<unknown> => cb(mockPrisma),
     ),
   };
 
@@ -123,7 +124,7 @@ describe('AgentService', () => {
         where: { id: '1', deletedAt: null },
       });
       expect(mockPrisma.agent.update).toHaveBeenCalledWith({
-        where: { id: '1' },
+        where: { id: '1', deletedAt: null },
         data: { name: 'New' },
       });
     });
@@ -134,6 +135,18 @@ describe('AgentService', () => {
       expect(result).toBeNull();
       // Verify update was never called since agent was not found
       expect(mockPrisma.agent.update).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when assignedModelId is invalid', async () => {
+      const prismaError = new Prisma.PrismaClientKnownRequestError(
+        'Foreign key constraint failed',
+        { code: 'P2003', clientVersion: '7.8.0' },
+      );
+      mockPrisma.$transaction.mockRejectedValueOnce(prismaError);
+
+      await expect(
+        service.update('1', { assignedModelId: 'invalid-model' }),
+      ).rejects.toThrow(/assignedModelId not found/);
     });
   });
 
@@ -146,7 +159,7 @@ describe('AgentService', () => {
       expect(result).toBeDefined();
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       expect(mockPrisma.agent.update).toHaveBeenCalledWith({
-        where: { id: '1' },
+        where: { id: '1', deletedAt: null },
         data: { deletedAt: expect.any(Date) },
       });
     });

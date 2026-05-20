@@ -54,19 +54,31 @@ export class AgentService {
   }
 
   async update(id: string, dto: UpdateAgentDto) {
-    return this.prisma.$transaction(async (tx) => {
-      const agent = await tx.agent.findFirst({
-        where: { id, deletedAt: null },
-      });
-      if (!agent) return null;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const agent = await tx.agent.findFirst({
+          where: { id, deletedAt: null },
+        });
+        if (!agent) return null;
 
-      const updated = await tx.agent.update({
-        where: { id },
-        data: dto,
+        const updated = await tx.agent.update({
+          where: { id, deletedAt: null },
+          data: dto,
+        });
+        this.logger.log(`Agent updated: ${id}`);
+        return updated;
       });
-      this.logger.log(`Agent updated: ${id}`);
-      return updated;
-    });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          `assignedModelId not found: ${dto.assignedModelId}`,
+        );
+      }
+      throw error;
+    }
   }
 
   async remove(id: string) {
@@ -77,7 +89,7 @@ export class AgentService {
       if (!agent) return null;
 
       const removed = await tx.agent.update({
-        where: { id },
+        where: { id, deletedAt: null },
         data: { deletedAt: new Date() },
       });
       this.logger.log(`Agent soft-deleted: ${id}`);

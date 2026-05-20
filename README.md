@@ -141,7 +141,7 @@ pnpm dev:frontend  # http://localhost:5173
 | Phase 4 | 工具与安全：文件交互、命令行、审批卡 | 待开始 |
 | Phase 5 | 记忆与学习：ACE 三层记忆 + 梦境系统 | 待开始 |
 | Phase 6 | Skill 系统：文件化 Skill 管理 + 市场 | 待开始 |
-| Phase 7 | TRPG 模式：完整跑团功能集成 | 待开始 |
+| Phase 7 | TRPG 模式：完整跑团功能集成 | 技术设计 v1.2 已完成 |
 | Phase 8 | 优化与发布：性能、监控、部署 | 待开始 |
 
 ## 许可证
