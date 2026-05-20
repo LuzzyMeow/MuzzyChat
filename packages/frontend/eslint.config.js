@@ -3,6 +3,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
+import globals from "globals";
 
 export default [
   js.configs.recommended,
@@ -14,6 +15,9 @@ export default [
         ecmaVersion: "latest",
         sourceType: "module",
         ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        ...globals.browser,
       },
     },
     plugins: {
@@ -27,6 +31,11 @@ export default [
         { allowConstantExport: true },
       ],
       ...reactHooks.configs.recommended.rules,
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true },
+      ],
+      "no-unused-vars": "off",
     },
   },
   {

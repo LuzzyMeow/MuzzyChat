@@ -15,6 +15,6 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   conversations: [],
   activeConversationId: null,
-  setConversations: (conversations) => set({ conversations }),
-  setActiveConversation: (id) => set({ activeConversationId: id }),
+  setConversations: (_conversations) => set({ conversations: _conversations }),
+  setActiveConversation: (_id) => set({ activeConversationId: _id }),
 }));
