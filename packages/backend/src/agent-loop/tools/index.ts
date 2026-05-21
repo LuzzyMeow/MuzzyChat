@@ -25,7 +25,9 @@ export const readFileTool = tool(
   async ({ filePath }) => {
     const resolved = resolveSafePath(filePath);
     const content = await fs.readFile(resolved, 'utf-8');
-    return `File: ${filePath}\n\`\`\`\n${content.slice(0, 8000)}\n\`\`\``;
+    const truncated = content.length > 8000;
+    const displayContent = content.slice(0, 8000);
+    return `File: ${filePath}\n\`\`\`\n${displayContent}${truncated ? '\n[... truncated at 8000 chars]' : ''}\n\`\`\``;
   },
   {
     name: 'read_file',

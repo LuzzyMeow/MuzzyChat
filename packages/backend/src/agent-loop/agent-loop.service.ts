@@ -368,14 +368,31 @@ export class AgentLoopService {
               toolArgs,
               agentId: state.agentId,
               conversationId: state.conversationId,
+              riskLevel: 'high',
               reason: `Agent wants to execute ${toolName}`,
             }) as ApprovalResult;
+
+            // Defensive check: ensure resume value has expected shape
+            if (!approval || typeof approval.approved !== 'boolean') {
+              results.push(
+                new ToolMessage({
+                  tool_call_id: toolCall.id!,
+                  content: 'Tool execution rejected: invalid approval response',
+                }),
+              );
+              service.chatGateway.emitToolEnd(state.conversationId, {
+                agentId: state.agentId,
+                toolName,
+                error: 'Invalid approval response',
+              });
+              continue;
+            }
 
             if (!approval.approved) {
               results.push(
                 new ToolMessage({
                   tool_call_id: toolCall.id!,
-                  content: `Tool execution rejected by user: ${approval.decision}`,
+                  content: `Tool execution rejected by user: ${approval.decision ?? 'no reason'}`,
                 }),
               );
               service.chatGateway.emitToolEnd(state.conversationId, {
@@ -520,6 +537,9 @@ export class AgentLoopService {
       conversationId: loopInfo.conversationId,
     });
 
+    // Derive risk level from interrupt data (default 'high' for HIGH_RISK_TOOLS)
+    const riskLevel = interruptData.riskLevel ?? 'high';
+
     // Create approval request in DB
     const approval = await this.prisma.approvalRequest.create({
       data: {
@@ -529,7 +549,7 @@ export class AgentLoopService {
         operation: interruptData.toolName,
         toolName: interruptData.toolName,
         reason: interruptData.reason,
-        riskLevel: 'medium',
+        riskLevel: riskLevel as 'low' | 'medium' | 'high' | 'critical',
         status: 'pending',
       },
     });
@@ -542,7 +562,7 @@ export class AgentLoopService {
       operation: interruptData.toolName,
       toolName: interruptData.toolName,
       reason: interruptData.reason,
-      riskLevel: 'medium',
+      riskLevel,
     });
 
     this.logger.log(
@@ -558,6 +578,7 @@ interface ApprovalInterruptData {
   toolArgs: Record<string, unknown>;
   agentId: string;
   conversationId: string;
+  riskLevel: string;
   reason: string;
 }
 
