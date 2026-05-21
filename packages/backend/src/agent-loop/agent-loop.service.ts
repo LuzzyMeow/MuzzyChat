@@ -325,11 +325,20 @@ export class AgentLoopService {
         });
       }
 
+      this.chatGateway.emitAgentThinking(conversationId, {
+        agentId: active.agentId,
+        content: undefined,
+      });
+
       this.activeLoops.delete(key);
       this.logger.log(`Resumed loop completed: ${active.agentId}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Resume loop failed: ${msg}`);
+      this.chatGateway.emitAgentThinking(conversationId, {
+        agentId,
+        content: undefined,
+      });
       this.chatGateway.emitError(conversationId, {
         code: 'AGENT_LOOP_ERROR',
         message: msg,
