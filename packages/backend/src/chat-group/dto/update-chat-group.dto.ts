@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdateChatGroupDto {
@@ -23,6 +24,7 @@ export class UpdateChatGroupDto {
   dynamicDiscussionEnabled?: boolean;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  supervisorAgentId?: string;
+  supervisorAgentId?: string | null;
 }

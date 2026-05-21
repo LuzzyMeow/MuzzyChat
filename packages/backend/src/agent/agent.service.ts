@@ -61,9 +61,22 @@ export class AgentService {
         });
         if (!agent) return null;
 
+        const data: Prisma.AgentUpdateInput = {};
+        if (dto.name !== undefined) data.name = dto.name;
+        if (dto.avatarDescription !== undefined) data.avatarDescription = dto.avatarDescription;
+        if (dto.systemPrompt !== undefined) data.systemPrompt = dto.systemPrompt;
+        if (dto.assignedModelId !== undefined) {
+          if (dto.assignedModelId === null) {
+            data.assignedModel = { disconnect: true };
+          } else {
+            data.assignedModel = { connect: { id: dto.assignedModelId } };
+          }
+        }
+        if (dto.tools !== undefined) data.tools = dto.tools;
+
         const updated = await tx.agent.update({
           where: { id, deletedAt: null },
-          data: dto,
+          data,
         });
         this.logger.log(`Agent updated: ${id}`);
         return updated;

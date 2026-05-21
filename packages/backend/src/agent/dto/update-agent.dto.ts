@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsNotEmpty, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsNotEmpty, MaxLength, ValidateIf } from 'class-validator';
 
 export class UpdateAgentDto {
   @IsOptional()
@@ -19,8 +19,9 @@ export class UpdateAgentDto {
   systemPrompt?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  assignedModelId?: string;
+  assignedModelId?: string | null;
 
   @IsOptional()
   @IsArray()

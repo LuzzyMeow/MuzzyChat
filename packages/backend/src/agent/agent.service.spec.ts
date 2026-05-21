@@ -148,6 +148,30 @@ describe('AgentService', () => {
         service.update('1', { assignedModelId: 'invalid-model' }),
       ).rejects.toThrow(/assignedModelId not found/);
     });
+
+    it('should disconnect assignedModel when assignedModelId is null', async () => {
+      mockPrisma.agent.findFirst.mockResolvedValue({ id: '1', name: 'Agent' });
+      mockPrisma.agent.update.mockResolvedValue({ id: '1', name: 'Agent', assignedModelId: null });
+
+      const result = await service.update('1', { assignedModelId: null });
+      expect(result).toBeDefined();
+      expect(mockPrisma.agent.update).toHaveBeenCalledWith({
+        where: { id: '1', deletedAt: null },
+        data: { assignedModel: { disconnect: true } },
+      });
+    });
+
+    it('should connect assignedModel when assignedModelId is a string', async () => {
+      mockPrisma.agent.findFirst.mockResolvedValue({ id: '1', name: 'Agent' });
+      mockPrisma.agent.update.mockResolvedValue({ id: '1', name: 'Agent', assignedModelId: 'model-1' });
+
+      const result = await service.update('1', { assignedModelId: 'model-1' });
+      expect(result).toBeDefined();
+      expect(mockPrisma.agent.update).toHaveBeenCalledWith({
+        where: { id: '1', deletedAt: null },
+        data: { assignedModel: { connect: { id: 'model-1' } } },
+      });
+    });
   });
 
   describe('remove', () => {

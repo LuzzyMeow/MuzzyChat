@@ -151,6 +151,24 @@ describe('ChatGroupService', () => {
         await service.update('nonexistent', { name: 'Updated' }),
       ).toBeNull();
     });
+
+    it('should disconnect supervisor when supervisorAgentId is null', async () => {
+      mockPrisma.chatGroup.findFirst.mockResolvedValue({ id: 'group-1' });
+      mockPrisma.chatGroup.update.mockResolvedValue({
+        id: 'group-1',
+        supervisorAgentId: null,
+      });
+
+      const result = await service.update('group-1', { supervisorAgentId: null });
+      expect(result).toBeDefined();
+      expect(mockPrisma.chatGroup.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            supervisorAgent: { disconnect: true },
+          }),
+        }),
+      );
+    });
   });
 
   describe('remove', () => {
