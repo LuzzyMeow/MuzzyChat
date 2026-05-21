@@ -169,17 +169,19 @@ export class AgentLoopService {
         }
       })();
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
+      let raceTimeoutId!: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        raceTimeoutId = setTimeout(
           () => reject(new Error(`Agent loop timed out after ${LOOP_TIMEOUT_MS / 1000}s`)),
           LOOP_TIMEOUT_MS,
-        ),
-      );
+        );
+      });
 
       try {
         await Promise.race([streamPromise, timeoutPromise]);
       } finally {
         clearTimeout(timeoutId);
+        clearTimeout(raceTimeoutId);
       }
 
       // 7. Persist final message
@@ -304,17 +306,19 @@ export class AgentLoopService {
         }
       })();
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
+      let raceTimeoutId!: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        raceTimeoutId = setTimeout(
           () => reject(new Error(`Agent loop timed out after ${LOOP_TIMEOUT_MS / 1000}s`)),
           LOOP_TIMEOUT_MS,
-        ),
-      );
+        );
+      });
 
       try {
         await Promise.race([streamPromise, timeoutPromise]);
       } finally {
         clearTimeout(timeoutId);
+        clearTimeout(raceTimeoutId);
       }
 
       if (finalContent && !isTimedOut) {

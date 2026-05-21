@@ -251,7 +251,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           where: { conversationId, deletedAt: null },
           include: {
             members: {
-              where: { enabled: true },
+              where: { enabled: true, agent: { deletedAt: null } },
               include: { agent: true },
             },
           },
