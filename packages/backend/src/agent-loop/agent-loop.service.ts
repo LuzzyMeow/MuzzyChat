@@ -101,7 +101,7 @@ export class AgentLoopService {
 
       // 5. Build & compile graph
       const threadId = `agent-${agentId}-${Date.now()}`;
-      const graph = this.buildGraph(llmWithTools, agent.systemPrompt);
+      const graph = this.buildGraph(llmWithTools, agent.systemPrompt, agent.tools);
 
       // 6. Execute with streaming (with 180s timeout)
       const input = {
@@ -120,8 +120,16 @@ export class AgentLoopService {
       });
 
       let finalContent = '';
+      let isTimedOut = false;
+
+      const timeoutId = setTimeout(() => {
+        isTimedOut = true;
+      }, LOOP_TIMEOUT_MS);
+
       const streamPromise = (async () => {
         for await (const update of stream) {
+          if (isTimedOut) return; // Stop processing after timeout
+
           // Check for interrupt (HITL pause)
           if ('__interrupt__' in update) {
             const interruptData = (update as Record<string, unknown>).__interrupt__;
@@ -144,7 +152,7 @@ export class AgentLoopService {
                     : JSON.stringify(msg.content);
                   finalContent = content;
 
-                  if (content) {
+                  if (content && !isTimedOut) {
                     this.chatGateway.emitMessageStream(conversationId, {
                       agentId,
                       content,
@@ -168,10 +176,14 @@ export class AgentLoopService {
         ),
       );
 
-      await Promise.race([streamPromise, timeoutPromise]);
+      try {
+        await Promise.race([streamPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       // 7. Persist final message
-      if (finalContent) {
+      if (finalContent && !isTimedOut) {
         const persisted = await this.persistAgentMessage(
           conversationId, agentId, finalContent,
         );
@@ -194,6 +206,9 @@ export class AgentLoopService {
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Agent loop failed: ${msg}`);
+      // Clean up any active loop entry (e.g., if timed out after an interrupt)
+      const loopKey = `${params.conversationId}::${params.agentId}`;
+      this.activeLoops.delete(loopKey);
       this.chatGateway.emitError(params.conversationId, {
         code: 'AGENT_LOOP_ERROR',
         message: msg,
@@ -231,7 +246,7 @@ export class AgentLoopService {
 
       const agentTools = filterTools(agent.tools);
       const llmWithTools = model.bindTools(agentTools as StructuredToolInterface[]);
-      const graph = this.buildGraph(llmWithTools, agent.systemPrompt);
+      const graph = this.buildGraph(llmWithTools, agent.systemPrompt, agent.tools);
 
       // Resume with Command (with timeout)
       const stream = await graph.stream(
@@ -243,8 +258,16 @@ export class AgentLoopService {
       );
 
       let finalContent = '';
+      let isTimedOut = false;
+
+      const timeoutId = setTimeout(() => {
+        isTimedOut = true;
+      }, LOOP_TIMEOUT_MS);
+
       const streamPromise = (async () => {
         for await (const update of stream) {
+          if (isTimedOut) return;
+
           if ('__interrupt__' in update) {
             const interruptData = (update as Record<string, unknown>).__interrupt__;
             await this.handleApprovalInterrupt(
@@ -264,7 +287,7 @@ export class AgentLoopService {
                     ? msg.content
                     : JSON.stringify(msg.content);
                   finalContent = content;
-                  if (content) {
+                  if (content && !isTimedOut) {
                     this.chatGateway.emitMessageStream(conversationId, {
                       agentId: active.agentId,
                       content,
@@ -284,9 +307,13 @@ export class AgentLoopService {
         ),
       );
 
-      await Promise.race([streamPromise, timeoutPromise]);
+      try {
+        await Promise.race([streamPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
-      if (finalContent) {
+      if (finalContent && !isTimedOut) {
         const persisted = await this.persistAgentMessage(
           conversationId, active.agentId, finalContent,
         );
@@ -316,8 +343,10 @@ export class AgentLoopService {
   private buildGraph(
     llm: ReturnType<ChatOpenAI['bindTools']>,
     systemPrompt: string,
+    enabledToolNames: string[],
   ) {
     const service = this;
+    const enabledSet = new Set(enabledToolNames);
 
     // ── Node: agent ────────────────────────────────────────────
     async function agentNode(
@@ -417,6 +446,22 @@ export class AgentLoopService {
               agentId: state.agentId,
               toolName,
               error: `Unknown tool: ${toolName}`,
+            });
+            continue;
+          }
+
+          // Defense-in-depth: verify tool is in agent's enabled set
+          if (!enabledSet.has(toolName)) {
+            results.push(
+              new ToolMessage({
+                tool_call_id: toolCall.id!,
+                content: `Tool "${toolName}" is not enabled for this agent`,
+              }),
+            );
+            service.chatGateway.emitToolEnd(state.conversationId, {
+              agentId: state.agentId,
+              toolName,
+              error: `Tool "${toolName}" is not enabled for this agent`,
             });
             continue;
           }
@@ -538,7 +583,10 @@ export class AgentLoopService {
     });
 
     // Derive risk level from interrupt data (default 'high' for HIGH_RISK_TOOLS)
-    const riskLevel = interruptData.riskLevel ?? 'high';
+    const VALID_RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical']);
+    const riskLevel = VALID_RISK_LEVELS.has(interruptData.riskLevel)
+      ? (interruptData.riskLevel as 'low' | 'medium' | 'high' | 'critical')
+      : 'high';
 
     // Create approval request in DB
     const approval = await this.prisma.approvalRequest.create({
@@ -549,7 +597,7 @@ export class AgentLoopService {
         operation: interruptData.toolName,
         toolName: interruptData.toolName,
         reason: interruptData.reason,
-        riskLevel: riskLevel as 'low' | 'medium' | 'high' | 'critical',
+        riskLevel: riskLevel,
         status: 'pending',
       },
     });

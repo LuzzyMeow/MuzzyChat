@@ -166,6 +166,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         };
       }
 
+      // Validate conversation exists and is not deleted
+      const conversation = await this.prisma.conversation.findFirst({
+        where: { id: existing.conversationId, deletedAt: null },
+      });
+      if (!conversation) {
+        return {
+          event: 'error',
+          data: { code: 'CONVERSATION_NOT_FOUND', message: `Conversation ${existing.conversationId} not found` },
+        };
+      }
+
       const status = payload.decision === 'approved' ? 'approved' : 'rejected';
 
       const [approval] = await this.prisma.$transaction([
