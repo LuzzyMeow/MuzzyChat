@@ -209,6 +209,10 @@ export class AgentLoopService {
       // Clean up any active loop entry (e.g., if timed out after an interrupt)
       const loopKey = `${params.conversationId}::${params.agentId}`;
       this.activeLoops.delete(loopKey);
+      this.chatGateway.emitAgentThinking(params.conversationId, {
+        agentId: params.agentId,
+        content: undefined,
+      });
       this.chatGateway.emitError(params.conversationId, {
         code: 'AGENT_LOOP_ERROR',
         message: msg,
