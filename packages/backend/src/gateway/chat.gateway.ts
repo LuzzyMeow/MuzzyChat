@@ -100,6 +100,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     try {
+      // Validate conversation exists and is not deleted
+      const conversation = await this.prisma.conversation.findFirst({
+        where: { id: payload.conversationId, deletedAt: null },
+      });
+      if (!conversation) {
+        return {
+          event: 'error',
+          data: { code: 'CONVERSATION_NOT_FOUND', message: `Conversation ${payload.conversationId} not found` },
+        };
+      }
+
       const message = await this.prisma.message.create({
         data: {
           conversationId: payload.conversationId,
@@ -184,10 +195,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       ]);
 
       // Resume paused agent loop
-      this.agentLoopService.resumeLoop(existing.conversationId, {
-        approved: payload.decision === 'approved',
-        decision: payload.decision,
-      });
+      this.agentLoopService.resumeLoop(
+        existing.conversationId,
+        existing.agentId,
+        {
+          approved: payload.decision === 'approved',
+          decision: payload.decision,
+        },
+      );
 
       return { event: 'approval:response', data: approval };
     } catch (error) {

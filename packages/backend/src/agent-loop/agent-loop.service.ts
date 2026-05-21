@@ -22,6 +22,9 @@ import { filterTools, TOOL_MAP, HIGH_RISK_TOOLS } from './tools';
 import type { ChatOpenAI } from '@langchain/openai';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 
+/** Max execution time for an agent loop (180s per project spec). */
+const LOOP_TIMEOUT_MS = 180_000;
+
 // ── State ─────────────────────────────────────────────────────
 
 const AgentState = Annotation.Root({
@@ -49,7 +52,7 @@ export class AgentLoopService {
   private readonly logger = new Logger(AgentLoopService.name);
   /** Shared in-memory checkpointer for LangGraph interrupt support */
   private readonly checkpointer = new MemorySaver();
-  /** Map of conversationId → ActiveLoop for HITL resume */
+  /** Map of conversationId::agentId → ActiveLoop for HITL resume */
   private readonly activeLoops = new Map<string, ActiveLoop>();
 
   constructor(
@@ -100,7 +103,7 @@ export class AgentLoopService {
       const threadId = `agent-${agentId}-${Date.now()}`;
       const graph = this.buildGraph(llmWithTools, agent.systemPrompt);
 
-      // 6. Execute with streaming
+      // 6. Execute with streaming (with 180s timeout)
       const input = {
         messages: [
           ...recentMessages,
@@ -117,44 +120,55 @@ export class AgentLoopService {
       });
 
       let finalContent = '';
-      for await (const update of stream) {
-        // Check for interrupt (HITL pause)
-        if ('__interrupt__' in update) {
-          const interruptData = (update as Record<string, unknown>).__interrupt__;
-          await this.handleApprovalInterrupt(
-            threadId,
-            { agentId, conversationId },
-            interruptData as ApprovalInterruptData,
-          );
-          return; // Loop pauses here; resumed via resumeLoop()
-        }
+      const streamPromise = (async () => {
+        for await (const update of stream) {
+          // Check for interrupt (HITL pause)
+          if ('__interrupt__' in update) {
+            const interruptData = (update as Record<string, unknown>).__interrupt__;
+            await this.handleApprovalInterrupt(
+              threadId,
+              { agentId, conversationId },
+              interruptData as ApprovalInterruptData,
+            );
+            return; // Loop pauses here; resumed via resumeLoop()
+          }
 
-        // Process agent node output
-        if ('agent' in update) {
-          const agentUpdate = update.agent as { messages?: BaseMessage[] };
-          if (agentUpdate.messages) {
-            for (const msg of agentUpdate.messages) {
-              if (msg instanceof AIMessage) {
-                const content = typeof msg.content === 'string'
-                  ? msg.content
-                  : JSON.stringify(msg.content);
-                finalContent = content;
+          // Process agent node output
+          if ('agent' in update) {
+            const agentUpdate = update.agent as { messages?: BaseMessage[] };
+            if (agentUpdate.messages) {
+              for (const msg of agentUpdate.messages) {
+                if (msg instanceof AIMessage) {
+                  const content = typeof msg.content === 'string'
+                    ? msg.content
+                    : JSON.stringify(msg.content);
+                  finalContent = content;
 
-                if (content) {
-                  this.chatGateway.emitMessageStream(conversationId, {
-                    agentId,
-                    content,
-                  });
+                  if (content) {
+                    this.chatGateway.emitMessageStream(conversationId, {
+                      agentId,
+                      content,
+                    });
+                  }
                 }
               }
             }
           }
-        }
 
-        if ('tools' in update) {
-          this.logger.log(`Tools executed for agent ${agentId}`);
+          if ('tools' in update) {
+            this.logger.log(`Tools executed for agent ${agentId}`);
+          }
         }
-      }
+      })();
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Agent loop timed out after ${LOOP_TIMEOUT_MS / 1000}s`)),
+          LOOP_TIMEOUT_MS,
+        ),
+      );
+
+      await Promise.race([streamPromise, timeoutPromise]);
 
       // 7. Persist final message
       if (finalContent) {
@@ -192,11 +206,13 @@ export class AgentLoopService {
    */
   async resumeLoop(
     conversationId: string,
+    agentId: string,
     approvalResult: { approved: boolean; decision: string },
   ): Promise<void> {
-    const active = this.activeLoops.get(conversationId);
+    const key = `${conversationId}::${agentId}`;
+    const active = this.activeLoops.get(key);
     if (!active) {
-      this.logger.warn(`No active loop for conversation ${conversationId}`);
+      this.logger.warn(`No active loop for ${key}`);
       return;
     }
 
@@ -217,7 +233,7 @@ export class AgentLoopService {
       const llmWithTools = model.bindTools(agentTools as StructuredToolInterface[]);
       const graph = this.buildGraph(llmWithTools, agent.systemPrompt);
 
-      // Resume with Command
+      // Resume with Command (with timeout)
       const stream = await graph.stream(
         new Command({ resume: approvalResult }),
         {
@@ -227,37 +243,48 @@ export class AgentLoopService {
       );
 
       let finalContent = '';
-      for await (const update of stream) {
-        if ('__interrupt__' in update) {
-          const interruptData = (update as Record<string, unknown>).__interrupt__;
-          await this.handleApprovalInterrupt(
-            active.threadId,
-            { agentId: active.agentId, conversationId },
-            interruptData as ApprovalInterruptData,
-          );
-          return;
-        }
+      const streamPromise = (async () => {
+        for await (const update of stream) {
+          if ('__interrupt__' in update) {
+            const interruptData = (update as Record<string, unknown>).__interrupt__;
+            await this.handleApprovalInterrupt(
+              active.threadId,
+              { agentId: active.agentId, conversationId },
+              interruptData as ApprovalInterruptData,
+            );
+            return;
+          }
 
-        if ('agent' in update) {
-          const agentUpdate = update.agent as { messages?: BaseMessage[] };
-          if (agentUpdate.messages) {
-            for (const msg of agentUpdate.messages) {
-              if (msg instanceof AIMessage) {
-                const content = typeof msg.content === 'string'
-                  ? msg.content
-                  : JSON.stringify(msg.content);
-                finalContent = content;
-                if (content) {
-                  this.chatGateway.emitMessageStream(conversationId, {
-                    agentId: active.agentId,
-                    content,
-                  });
+          if ('agent' in update) {
+            const agentUpdate = update.agent as { messages?: BaseMessage[] };
+            if (agentUpdate.messages) {
+              for (const msg of agentUpdate.messages) {
+                if (msg instanceof AIMessage) {
+                  const content = typeof msg.content === 'string'
+                    ? msg.content
+                    : JSON.stringify(msg.content);
+                  finalContent = content;
+                  if (content) {
+                    this.chatGateway.emitMessageStream(conversationId, {
+                      agentId: active.agentId,
+                      content,
+                    });
+                  }
                 }
               }
             }
           }
         }
-      }
+      })();
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Agent loop timed out after ${LOOP_TIMEOUT_MS / 1000}s`)),
+          LOOP_TIMEOUT_MS,
+        ),
+      );
+
+      await Promise.race([streamPromise, timeoutPromise]);
 
       if (finalContent) {
         const persisted = await this.persistAgentMessage(
@@ -271,7 +298,7 @@ export class AgentLoopService {
         });
       }
 
-      this.activeLoops.delete(conversationId);
+      this.activeLoops.delete(key);
       this.logger.log(`Resumed loop completed: ${active.agentId}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -280,7 +307,7 @@ export class AgentLoopService {
         code: 'AGENT_LOOP_ERROR',
         message: msg,
       });
-      this.activeLoops.delete(conversationId);
+      this.activeLoops.delete(key);
     }
   }
 
@@ -452,12 +479,13 @@ export class AgentLoopService {
   ): Promise<BaseMessage[]> {
     const messages = await this.prisma.message.findMany({
       where: { conversationId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: limit,
       select: { role: true, content: true, agentId: true },
     });
 
-    return messages.map((m) => {
+    // Reverse to chronological order for LLM context
+    return messages.reverse().map((m) => {
       if (m.role === 'user') return new HumanMessage(m.content);
       return new AIMessage({ content: m.content });
     });
@@ -484,8 +512,9 @@ export class AgentLoopService {
     loopInfo: { agentId: string; conversationId: string },
     interruptData: ApprovalInterruptData,
   ) {
-    // Store thread mapping for resume
-    this.activeLoops.set(loopInfo.conversationId, {
+    // Store thread mapping for resume (compound key for multi-agent group chat)
+    const key = `${loopInfo.conversationId}::${loopInfo.agentId}`;
+    this.activeLoops.set(key, {
       threadId,
       agentId: loopInfo.agentId,
       conversationId: loopInfo.conversationId,

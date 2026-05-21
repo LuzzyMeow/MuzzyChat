@@ -10,6 +10,9 @@ describe('ChatGateway', () => {
     message: {
       create: jest.fn(),
     },
+    conversation: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'conv-001', type: 'group' }),
+    },
     approvalRequest: {
       findUnique: jest.fn(),
       update: jest.fn(),

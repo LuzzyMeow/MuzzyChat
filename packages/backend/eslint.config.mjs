@@ -19,6 +19,8 @@ export default [
         require: "readonly",
         module: "readonly",
         exports: "writable",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
       },
     },
     plugins: {
