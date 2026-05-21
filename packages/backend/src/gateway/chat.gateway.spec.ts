@@ -13,6 +13,9 @@ describe('ChatGateway', () => {
     conversation: {
       findFirst: jest.fn().mockResolvedValue({ id: 'conv-001', type: 'group' }),
     },
+    agent: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'agent-001' }),
+    },
     approvalRequest: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -215,6 +218,54 @@ describe('ChatGateway', () => {
       });
     });
 
+    it('should reject empty content', async () => {
+      const payload = {
+        conversationId: 'conv-001',
+        content: '',
+      };
+
+      const result = await gateway.handleMessageSend(mockClient as any, payload);
+
+      expect(result).toEqual({
+        event: 'error',
+        data: { code: 'INVALID_CONTENT', message: 'content is required and must be a non-empty string' },
+      });
+      expect(mockPrismaService.message.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject whitespace-only content', async () => {
+      const payload = {
+        conversationId: 'conv-001',
+        content: '   ',
+      };
+
+      const result = await gateway.handleMessageSend(mockClient as any, payload);
+
+      expect(result).toEqual({
+        event: 'error',
+        data: { code: 'INVALID_CONTENT', message: 'content is required and must be a non-empty string' },
+      });
+      expect(mockPrismaService.message.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject non-existent agent in DM mode', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValueOnce(null);
+
+      const payload = {
+        conversationId: 'conv-001',
+        content: 'Hello',
+        agentId: 'nonexistent-agent',
+      };
+
+      const result = await gateway.handleMessageSend(mockClient as any, payload);
+
+      expect(result).toEqual({
+        event: 'error',
+        data: { code: 'AGENT_NOT_FOUND', message: 'Agent nonexistent-agent not found or deleted' },
+      });
+      expect(mockPrismaService.message.create).not.toHaveBeenCalled();
+    });
+
     it('should reject invalid messageType', async () => {
       const payload = {
         conversationId: 'conv-001',
@@ -339,6 +390,18 @@ describe('ChatGateway', () => {
       expect(result).toEqual({
         event: 'approval:response',
         data: updatedApproval,
+      });
+    });
+
+    it('should reject invalid decision in approval response', async () => {
+      const result = await gateway.handleApprovalResponse(mockClient as any, {
+        approvalId: 'approval-001',
+        decision: 'maybe' as any,
+      });
+
+      expect(result).toEqual({
+        event: 'error',
+        data: { code: 'INVALID_DECISION', message: "decision must be 'approved' or 'rejected', got: 'maybe'" },
       });
     });
 

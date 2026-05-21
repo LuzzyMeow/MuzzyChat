@@ -142,7 +142,7 @@ pnpm dev:frontend  # http://localhost:5173
 | 阶段 | 内容 | 状态 |
 |:---|:---|:---|
 | Phase 1 | 基础设施：项目骨架、数据库、Agent 工坊 | 已完成 |
-| Phase 2 | 核心对话：单 Agent 私聊 + 多 Agent 群聊 | 进行中（Agent CRUD + LLM Service + Conversation + ChatGroup + Agent ReAct Loop + HITL 审批 已完成，10 轮代码审查全部通过；第 10 轮修复超时泄漏 + 群聊已删除 Agent 过滤） |
+| Phase 2 | 核心对话：单 Agent 私聊 + 多 Agent 群聊 | 进行中（Agent CRUD + LLM Service + Conversation + ChatGroup + Agent ReAct Loop + HITL 审批 已完成，10 轮代码审查全部通过；第 11 轮修复：空消息验证、决策合法性验证、Agent 存在性验证、流处理逻辑重构、测试用例补全） |
 | Phase 3 | 双模式引擎：Parallel + Supervisor 发言模式 | 待开始 |
 | Phase 4 | 工具与安全：文件交互、命令行、审批卡 | 待开始 |
 | Phase 5 | 记忆与学习：ACE 三层记忆 + 梦境系统 | 待开始 |

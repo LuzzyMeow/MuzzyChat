@@ -99,6 +99,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
 
+    if (!payload.content || typeof payload.content !== 'string' || !payload.content.trim()) {
+      return {
+        event: 'error',
+        data: { code: 'INVALID_CONTENT', message: 'content is required and must be a non-empty string' },
+      };
+    }
+
     try {
       // Validate conversation exists and is not deleted
       const conversation = await this.prisma.conversation.findFirst({
@@ -109,6 +116,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           event: 'error',
           data: { code: 'CONVERSATION_NOT_FOUND', message: `Conversation ${payload.conversationId} not found` },
         };
+      }
+
+      // Validate agentId in DM mode (agent existence + not soft-deleted)
+      if (payload.agentId) {
+        const agent = await this.prisma.agent.findFirst({
+          where: { id: payload.agentId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!agent) {
+          return {
+            event: 'error',
+            data: { code: 'AGENT_NOT_FOUND', message: `Agent ${payload.agentId} not found or deleted` },
+          };
+        }
       }
 
       const message = await this.prisma.message.create({
@@ -146,6 +167,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
   ): Promise<{ event: string; data: unknown } | { event: string; data: { code: string; message: string } }> {
     this.logger.log(`approval:response for ${payload.approvalId}: ${payload.decision}`);
+
+    const VALID_DECISIONS = new Set(['approved', 'rejected']);
+    if (!payload.decision || !VALID_DECISIONS.has(payload.decision)) {
+      return {
+        event: 'error',
+        data: { code: 'INVALID_DECISION', message: `decision must be 'approved' or 'rejected', got: '${payload.decision}'` },
+      };
+    }
 
     try {
       const existing = await this.prisma.approvalRequest.findUnique({

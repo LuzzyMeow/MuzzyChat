@@ -85,12 +85,7 @@ export class AgentLoopService {
       }
 
       // 2. Resolve model
-      let model: ChatOpenAI;
-      if (agent.assignedModelId) {
-        model = await this.llmService.getModelByProviderModelId(agent.assignedModelId);
-      } else {
-        model = await this.llmService.getDefaultModelByRole('big');
-      }
+      const model = await this.resolveModel(agent.assignedModelId);
 
       // 3. Bind tools to LLM
       const agentTools = filterTools(agent.tools);
@@ -119,88 +114,12 @@ export class AgentLoopService {
         streamMode: 'updates',
       });
 
-      let finalContent = '';
-      let isTimedOut = false;
-
-      const timeoutId = setTimeout(() => {
-        isTimedOut = true;
-      }, LOOP_TIMEOUT_MS);
-
-      const streamPromise = (async () => {
-        for await (const update of stream) {
-          if (isTimedOut) return; // Stop processing after timeout
-
-          // Check for interrupt (HITL pause)
-          if ('__interrupt__' in update) {
-            const interruptData = (update as Record<string, unknown>).__interrupt__;
-            await this.handleApprovalInterrupt(
-              threadId,
-              { agentId, conversationId },
-              interruptData as ApprovalInterruptData,
-            );
-            return; // Loop pauses here; resumed via resumeLoop()
-          }
-
-          // Process agent node output
-          if ('agent' in update) {
-            const agentUpdate = update.agent as { messages?: BaseMessage[] };
-            if (agentUpdate.messages) {
-              for (const msg of agentUpdate.messages) {
-                if (msg instanceof AIMessage) {
-                  const content = typeof msg.content === 'string'
-                    ? msg.content
-                    : JSON.stringify(msg.content);
-                  finalContent = content;
-
-                  if (content && !isTimedOut) {
-                    this.chatGateway.emitMessageStream(conversationId, {
-                      agentId,
-                      content,
-                    });
-                  }
-                }
-              }
-            }
-          }
-
-          if ('tools' in update) {
-            this.logger.log(`Tools executed for agent ${agentId}`);
-          }
-        }
-      })();
-
-      let raceTimeoutId!: ReturnType<typeof setTimeout>;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        raceTimeoutId = setTimeout(
-          () => reject(new Error(`Agent loop timed out after ${LOOP_TIMEOUT_MS / 1000}s`)),
-          LOOP_TIMEOUT_MS,
-        );
-      });
-
-      try {
-        await Promise.race([streamPromise, timeoutPromise]);
-      } finally {
-        clearTimeout(timeoutId);
-        clearTimeout(raceTimeoutId);
-      }
+      const finalContent = await this.processStream(
+        stream, threadId, { agentId, conversationId },
+      );
 
       // 7. Persist final message
-      if (finalContent && !isTimedOut) {
-        const persisted = await this.persistAgentMessage(
-          conversationId, agentId, finalContent,
-        );
-        this.chatGateway.emitMessageComplete(conversationId, {
-          messageId: persisted.id,
-          agentId,
-          content: finalContent,
-          messageType: 'text',
-        });
-      }
-
-      this.chatGateway.emitAgentThinking(conversationId, {
-        agentId,
-        content: undefined,
-      });
+      await this.finalizeLoop(conversationId, agentId, finalContent);
 
       this.logger.log(
         `Agent loop completed: ${agentId} in conversation ${conversationId}`,
@@ -243,13 +162,7 @@ export class AgentLoopService {
       });
       if (!agent) return;
 
-      let model: ChatOpenAI;
-      if (agent.assignedModelId) {
-        model = await this.llmService.getModelByProviderModelId(agent.assignedModelId);
-      } else {
-        model = await this.llmService.getDefaultModelByRole('big');
-      }
-
+      const model = await this.resolveModel(agent.assignedModelId);
       const agentTools = filterTools(agent.tools);
       const llmWithTools = model.bindTools(agentTools as StructuredToolInterface[]);
       const graph = this.buildGraph(llmWithTools, agent.systemPrompt, agent.tools);
@@ -263,80 +176,11 @@ export class AgentLoopService {
         },
       );
 
-      let finalContent = '';
-      let isTimedOut = false;
+      const finalContent = await this.processStream(
+        stream, active.threadId, { agentId: active.agentId, conversationId },
+      );
 
-      const timeoutId = setTimeout(() => {
-        isTimedOut = true;
-      }, LOOP_TIMEOUT_MS);
-
-      const streamPromise = (async () => {
-        for await (const update of stream) {
-          if (isTimedOut) return;
-
-          if ('__interrupt__' in update) {
-            const interruptData = (update as Record<string, unknown>).__interrupt__;
-            await this.handleApprovalInterrupt(
-              active.threadId,
-              { agentId: active.agentId, conversationId },
-              interruptData as ApprovalInterruptData,
-            );
-            return;
-          }
-
-          if ('agent' in update) {
-            const agentUpdate = update.agent as { messages?: BaseMessage[] };
-            if (agentUpdate.messages) {
-              for (const msg of agentUpdate.messages) {
-                if (msg instanceof AIMessage) {
-                  const content = typeof msg.content === 'string'
-                    ? msg.content
-                    : JSON.stringify(msg.content);
-                  finalContent = content;
-                  if (content && !isTimedOut) {
-                    this.chatGateway.emitMessageStream(conversationId, {
-                      agentId: active.agentId,
-                      content,
-                    });
-                  }
-                }
-              }
-            }
-          }
-        }
-      })();
-
-      let raceTimeoutId!: ReturnType<typeof setTimeout>;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        raceTimeoutId = setTimeout(
-          () => reject(new Error(`Agent loop timed out after ${LOOP_TIMEOUT_MS / 1000}s`)),
-          LOOP_TIMEOUT_MS,
-        );
-      });
-
-      try {
-        await Promise.race([streamPromise, timeoutPromise]);
-      } finally {
-        clearTimeout(timeoutId);
-        clearTimeout(raceTimeoutId);
-      }
-
-      if (finalContent && !isTimedOut) {
-        const persisted = await this.persistAgentMessage(
-          conversationId, active.agentId, finalContent,
-        );
-        this.chatGateway.emitMessageComplete(conversationId, {
-          messageId: persisted.id,
-          agentId: active.agentId,
-          content: finalContent,
-          messageType: 'text',
-        });
-      }
-
-      this.chatGateway.emitAgentThinking(conversationId, {
-        agentId: active.agentId,
-        content: undefined,
-      });
+      await this.finalizeLoop(conversationId, active.agentId, finalContent);
 
       this.activeLoops.delete(key);
       this.logger.log(`Resumed loop completed: ${active.agentId}`);
@@ -353,6 +197,111 @@ export class AgentLoopService {
       });
       this.activeLoops.delete(key);
     }
+  }
+
+  // ── Stream processing (shared by runAgentLoop & resumeLoop) ──
+
+  /**
+   * Iterate a LangGraph stream with timeout protection and HITL interrupt handling.
+   * Returns the final AI content string (empty if interrupted or timed out).
+   */
+  private async processStream(
+    stream: AsyncIterable<Record<string, unknown>>,
+    threadId: string,
+    loopInfo: { agentId: string; conversationId: string },
+  ): Promise<string> {
+    let finalContent = '';
+    let isTimedOut = false;
+
+    const timeoutId = setTimeout(() => {
+      isTimedOut = true;
+    }, LOOP_TIMEOUT_MS);
+
+    const streamPromise = (async () => {
+      for await (const update of stream) {
+        if (isTimedOut) return;
+
+        // Check for interrupt (HITL pause)
+        if ('__interrupt__' in update) {
+          const interruptData = (update as Record<string, unknown>).__interrupt__;
+          await this.handleApprovalInterrupt(
+            threadId,
+            loopInfo,
+            interruptData as ApprovalInterruptData,
+          );
+          return; // Loop pauses here; resumed via resumeLoop()
+        }
+
+        // Process agent node output
+        if ('agent' in update) {
+          const agentUpdate = update.agent as { messages?: BaseMessage[] };
+          if (agentUpdate.messages) {
+            for (const msg of agentUpdate.messages) {
+              if (msg instanceof AIMessage) {
+                const content = typeof msg.content === 'string'
+                  ? msg.content
+                  : JSON.stringify(msg.content);
+                finalContent = content;
+
+                if (content && !isTimedOut) {
+                  this.chatGateway.emitMessageStream(loopInfo.conversationId, {
+                    agentId: loopInfo.agentId,
+                    content,
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        if ('tools' in update) {
+          this.logger.log(`Tools executed for agent ${loopInfo.agentId}`);
+        }
+      }
+    })();
+
+    let raceTimeoutId!: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      raceTimeoutId = setTimeout(
+        () => reject(new Error(`Agent loop timed out after ${LOOP_TIMEOUT_MS / 1000}s`)),
+        LOOP_TIMEOUT_MS,
+      );
+    });
+
+    try {
+      await Promise.race([streamPromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId);
+      clearTimeout(raceTimeoutId);
+    }
+
+    return isTimedOut ? '' : finalContent;
+  }
+
+  /**
+   * Persist the final agent message and emit completion/thinking-stop signals.
+   */
+  private async finalizeLoop(
+    conversationId: string,
+    agentId: string,
+    finalContent: string,
+  ): Promise<void> {
+    if (finalContent) {
+      const persisted = await this.persistAgentMessage(
+        conversationId, agentId, finalContent,
+      );
+      this.chatGateway.emitMessageComplete(conversationId, {
+        messageId: persisted.id,
+        agentId,
+        content: finalContent,
+        messageType: 'text',
+      });
+    }
+
+    this.chatGateway.emitAgentThinking(conversationId, {
+      agentId,
+      content: undefined,
+    });
   }
 
   // ── Graph construction ──────────────────────────────────────
@@ -551,6 +500,13 @@ export class AgentLoopService {
   }
 
   // ── Helpers ─────────────────────────────────────────────────
+
+  private async resolveModel(assignedModelId: string | null): Promise<ChatOpenAI> {
+    if (assignedModelId) {
+      return this.llmService.getModelByProviderModelId(assignedModelId);
+    }
+    return this.llmService.getDefaultModelByRole('big');
+  }
 
   private async loadRecentMessages(
     conversationId: string,
