@@ -1,5 +1,7 @@
 import {
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import {
   MessageBody,
@@ -12,6 +14,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
+import { AgentLoopService } from '../agent-loop/agent-loop.service';
 import { MessageType } from '../../generated/prisma/enums';
 
 const VALID_MESSAGE_TYPES = new Set<string>(Object.values(MessageType));
@@ -29,7 +32,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(ChatGateway.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => AgentLoopService))
+    private readonly agentLoopService: AgentLoopService,
+  ) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
@@ -106,6 +113,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       this.server.to(`conversation:${payload.conversationId}`).emit('message:send', message);
 
+      // Trigger agent response asynchronously
+      this.triggerAgentResponse(payload.conversationId, payload.agentId, payload.content);
+
       return { event: 'message:send', data: message };
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -173,6 +183,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }),
       ]);
 
+      // Resume paused agent loop
+      this.agentLoopService.resumeLoop(existing.conversationId, {
+        approved: payload.decision === 'approved',
+        decision: payload.decision,
+      });
+
       return { event: 'approval:response', data: approval };
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -188,6 +204,56 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     messageId?: string;
   }) {
     this.server.to(`conversation:${conversationId}`).emit('message:stream', data);
+  }
+
+  // ── Agent loop trigger ──────────────────────────────────────
+
+  /**
+   * Determine which agents should respond to a user message
+   * and spawn their ReAct loops asynchronously.
+   */
+  private triggerAgentResponse(
+    conversationId: string,
+    agentId: string | undefined,
+    userMessage: string,
+  ) {
+    // Fire-and-forget: don't block the WebSocket handler
+    Promise.resolve().then(async () => {
+      try {
+        // Check if this is a group conversation
+        const chatGroup = await this.prisma.chatGroup.findFirst({
+          where: { conversationId, deletedAt: null },
+          include: {
+            members: {
+              where: { enabled: true },
+              include: { agent: true },
+            },
+          },
+        });
+
+        if (chatGroup && chatGroup.members.length > 0) {
+          // Group: trigger all enabled members
+          for (const member of chatGroup.members) {
+            this.agentLoopService.runAgentLoop({
+              agentId: member.agentId,
+              conversationId,
+              userMessage: `[Group Chat - ${chatGroup.name}] ${userMessage}`,
+            });
+          }
+        } else if (agentId) {
+          // DM: trigger the specified agent
+          this.agentLoopService.runAgentLoop({
+            agentId,
+            conversationId,
+            userMessage,
+          });
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to trigger agent response: ${error instanceof Error ? error.message : 'Unknown'}`,
+        );
+      }
+    });
   }
 
   emitMessageComplete(conversationId: string, data: {

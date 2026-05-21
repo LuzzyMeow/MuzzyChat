@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ChatGateway } from './chat.gateway';
 import { PrismaService } from '../prisma/prisma.service';
+import { AgentLoopService } from '../agent-loop/agent-loop.service';
 
 describe('ChatGateway', () => {
   let gateway: ChatGateway;
@@ -16,7 +17,15 @@ describe('ChatGateway', () => {
     auditTrail: {
       create: jest.fn(),
     },
+    chatGroup: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     $transaction: jest.fn((promises: Promise<unknown>[]) => Promise.all(promises)),
+  };
+
+  const mockAgentLoopService = {
+    runAgentLoop: jest.fn(),
+    resumeLoop: jest.fn(),
   };
 
   const mockServer = {
@@ -38,6 +47,10 @@ describe('ChatGateway', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: AgentLoopService,
+          useValue: mockAgentLoopService,
         },
       ],
     }).compile();

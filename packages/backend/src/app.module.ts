@@ -9,6 +9,7 @@ import { AgentModule } from './agent/agent.module';
 import { LlmModule } from './llm/llm.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { ChatGroupModule } from './chat-group/chat-group.module';
+import { AgentLoopModule } from './agent-loop/agent-loop.module';
 
 /**
  * Walk up from startDir to find the monorepo root containing `.env`.
@@ -41,6 +42,7 @@ function findEnvPath(startDir: string): string {
     LlmModule,
     ConversationModule,
     ChatGroupModule,
+    AgentLoopModule,
   ],
   controllers: [AppController],
 })

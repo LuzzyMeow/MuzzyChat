@@ -48,6 +48,7 @@ MuzzyChat/
 │   │   │   └── schema.prisma   # 数据库模型（19 models）
 │   │   └── src/
 │   │       ├── agent/          # Agent CRUD 模块
+│   │       ├── agent-loop/     # ReAct 循环模块（LangGraph.js）
 │   │       ├── chat-group/     # 群组管理与成员管理模块
 │   │       ├── conversation/   # 会话 CRUD 模块
 │   │       ├── llm/            # LLM 调用封装（LangChain.js）
@@ -141,7 +142,7 @@ pnpm dev:frontend  # http://localhost:5173
 | 阶段 | 内容 | 状态 |
 |:---|:---|:---|
 | Phase 1 | 基础设施：项目骨架、数据库、Agent 工坊 | 已完成 |
-| Phase 2 | 核心对话：单 Agent 私聊 + 多 Agent 群聊 | 进行中（Agent CRUD + LLM Service + Conversation + ChatGroup 已完成） |
+| Phase 2 | 核心对话：单 Agent 私聊 + 多 Agent 群聊 | 进行中（Agent CRUD + LLM Service + Conversation + ChatGroup + Agent ReAct Loop 已完成） |
 | Phase 3 | 双模式引擎：Parallel + Supervisor 发言模式 | 待开始 |
 | Phase 4 | 工具与安全：文件交互、命令行、审批卡 | 待开始 |
 | Phase 5 | 记忆与学习：ACE 三层记忆 + 梦境系统 | 待开始 |
