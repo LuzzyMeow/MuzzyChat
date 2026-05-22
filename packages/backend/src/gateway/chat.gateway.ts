@@ -221,7 +221,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Phase 4: Cancel approval timeout
       this.approvalTimeout.cancel(payload.approvalId);
 
-      // Phase 4: Audit approval decision
+      // Phase 4: Audit approval decision (03 §4.3)
       let targetArgs: Record<string, unknown> = {};
       try {
         targetArgs = JSON.parse(existing.target ?? '{}');
@@ -233,35 +233,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         existing.toolName ?? 'unknown',
         targetArgs,
         { agentId: existing.agentId, agentName: undefined, conversationId: existing.conversationId, noReviewMode: false },
-        { requiresApproval: true, riskLevel: (existing.riskLevel as 'low' | 'medium' | 'high' | 'critical') ?? 'high' },
+        { requiresApproval: true, riskLevel: (existing.riskLevel as 'low' | 'medium' | 'high' | 'critical') ?? 'high', matchedRule: existing.matchedRule ?? undefined },
         payload.approvalId,
       );
 
-      const [approval] = await this.prisma.$transaction([
-        this.prisma.approvalRequest.update({
-          where: { id: payload.approvalId },
-          data: {
-            status,
-            userDecision: payload.decision,
-            resolvedAt: new Date(),
-          },
-        }),
-        this.prisma.auditTrail.create({
-          data: {
-            action: `approval:${payload.decision}`,
-            agentId: existing.agentId,
-            conversationId: existing.conversationId,
-            details: {
-              approvalId: payload.approvalId,
-              target: existing.target,
-              operation: existing.operation,
-              toolName: existing.toolName,
-              riskLevel: existing.riskLevel,
-              userDecision: payload.decision,
-            },
-          },
-        }),
-      ]);
+      // Phase 4: Add to session whitelist on approval (03 §3.5.2)
+      if (payload.decision === 'approved') {
+        await this.toolExecutor.addToWhitelist(
+          existing.toolName ?? 'unknown',
+          targetArgs,
+          { agentId: existing.agentId, agentName: undefined, conversationId: existing.conversationId, noReviewMode: false },
+          { requiresApproval: true, riskLevel: (existing.riskLevel as 'low' | 'medium' | 'high' | 'critical') ?? 'high' },
+          payload.approvalId,
+        );
+      }
+
+      const approval = await this.prisma.approvalRequest.update({
+        where: { id: payload.approvalId },
+        data: {
+          status,
+          userDecision: payload.decision,
+          resolvedAt: new Date(),
+        },
+      });
 
       // Resume paused agent loop
       this.agentLoopService.resumeLoop(

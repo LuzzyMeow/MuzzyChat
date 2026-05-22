@@ -631,6 +631,7 @@ export class AgentLoopService {
         target: JSON.stringify(interruptData.toolArgs),
         operation: interruptData.toolName,
         toolName: interruptData.toolName,
+        matchedRule: interruptData.matchedRule ?? null,
         reason: interruptData.reason,
         riskLevel,
         status: 'pending',

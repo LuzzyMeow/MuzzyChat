@@ -55,6 +55,7 @@ describe('ChatGateway', () => {
 
   const mockToolExecutor = {
     auditApproval: jest.fn().mockResolvedValue(undefined),
+    addToWhitelist: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockServer = {
@@ -367,17 +368,9 @@ describe('ChatGateway', () => {
         resolvedAt: expect.any(Date),
       };
 
-      const auditRecord = {
-        id: 'audit-001',
-        action: 'approval:approved',
-      };
-
       mockPrismaService.approvalRequest.findUnique.mockResolvedValue(existingApproval);
       mockPrismaService.approvalRequest.update.mockResolvedValue(updatedApproval);
-      mockPrismaService.auditTrail.create.mockResolvedValue(auditRecord);
-      mockPrismaService.$transaction.mockImplementation((fns: Promise<unknown>[]) =>
-        Promise.all(fns),
-      );
+      mockPrismaService.conversation.findFirst.mockResolvedValue({ id: 'conv-001', deletedAt: null });
 
       const result = await gateway.handleApprovalResponse(mockClient as any, payload);
 
@@ -385,7 +378,24 @@ describe('ChatGateway', () => {
         where: { id: 'approval-001' },
       });
 
-      expect(mockPrismaService.$transaction).toHaveBeenCalled();
+      expect(mockToolExecutor.auditApproval).toHaveBeenCalledWith(
+        'approved', 'read_file', expect.any(Object),
+        expect.any(Object), expect.any(Object), 'approval-001',
+      );
+
+      expect(mockToolExecutor.addToWhitelist).toHaveBeenCalledWith(
+        'read_file', expect.any(Object),
+        expect.any(Object), expect.any(Object), 'approval-001',
+      );
+
+      expect(mockPrismaService.approvalRequest.update).toHaveBeenCalledWith({
+        where: { id: 'approval-001' },
+        data: {
+          status: 'approved',
+          userDecision: 'approved',
+          resolvedAt: expect.any(Date),
+        },
+      });
 
       expect(result).toEqual({
         event: 'approval:response',
@@ -393,7 +403,7 @@ describe('ChatGateway', () => {
       });
     });
 
-    it('should reject an approval request', async () => {
+    it('should reject an approval request and NOT add to whitelist', async () => {
       const payload = {
         approvalId: 'approval-002',
         decision: 'rejected' as const,
@@ -419,12 +429,13 @@ describe('ChatGateway', () => {
 
       mockPrismaService.approvalRequest.findUnique.mockResolvedValue(existingApproval);
       mockPrismaService.approvalRequest.update.mockResolvedValue(updatedApproval);
-      mockPrismaService.auditTrail.create.mockResolvedValue({});
-      mockPrismaService.$transaction.mockImplementation((fns: Promise<unknown>[]) =>
-        Promise.all(fns),
-      );
+      mockPrismaService.conversation.findFirst.mockResolvedValue({ id: 'conv-001', deletedAt: null });
 
       const result = await gateway.handleApprovalResponse(mockClient as any, payload);
+
+      // Rejected: should NOT call addToWhitelist
+      expect(mockToolExecutor.addToWhitelist).not.toHaveBeenCalled();
+      expect(mockToolExecutor.auditApproval).toHaveBeenCalled();
 
       expect(result).toEqual({
         event: 'approval:response',
