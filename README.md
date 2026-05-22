@@ -49,10 +49,17 @@ MuzzyChat/
 │   │   └── src/
 │   │       ├── agent/          # Agent CRUD 模块
 │   │       ├── agent-loop/     # ReAct 循环模块（LangGraph.js）
+│   │       ├── ace/            # ACE 记忆系统（Generator/Reflector/Curator/Retrieval）
 │   │       ├── chat-group/     # 群组管理与成员管理模块
 │   │       ├── conversation/   # 会话 CRUD 模块
+│   │       ├── dream/          # 梦境系统（三阶段服务 + BullMQ调度 + 导出）
 │   │       ├── llm/            # LLM 调用封装（LangChain.js）
 │   │       ├── gateway/        # Socket.IO 网关
+│   │       ├── model-provider/ # 模型供应商管理
+│   │       ├── orchestration/  # 双模式引擎（Parallel + Supervisor + 招募）
+│   │       ├── security/       # 安全引擎（风险规则+白名单+审计+超时+编排）
+│   │       ├── settings/       # 键值设置 API
+│   │       ├── skill/          # 技能系统（自沉淀 + Curator伞形整合）
 │   │       ├── prisma/         # Prisma 服务
 │   │       ├── app.module.ts   # 根模块
 │   │       └── main.ts         # 入口
@@ -149,7 +156,7 @@ pnpm dev:frontend  # http://localhost:5173
 | Phase 3 | 双模式引擎：Parallel (7态状态机) + Supervisor (执行计划引擎) + DynamicDiscussion (N×3轮次) + LoopDetector (TF-IDF+LLM) + 一句话招募 + 前端模式切换 + TaskBoard | ✅ 已完成（第18轮审查 4 项问题已修复） |
 | Phase 4 | 工具与安全：风险规则引擎 (42条) + 间接调用检测 (递归深度3) + 会话白名单 (Redis) + 审计日志 (不可篡改) + 审批超时 (5min) + 统一工具编排 + web_search/web_fetch 真实实现 | ✅ 已完成 |
 | Phase 5 | 记忆与学习：ACE Generator (攒批+LLM) + Reflector (合并+删除) + Curator (scope自动设定) + Retrieval (pgvector Top-K) + LlmService.embedText() | ✅ 已完成 |
-| Phase 6 | Skill 系统：文件化 Skill 管理 + 市场 | 待开始 |
+| Phase 6 | 梦境与技能系统：DreamService (浅睡/REM/深睡) + BullMQ 定时任务 + MEMORY.md/DREAMS.md 导出 + SkillPrecipitate (自沉淀+安全扫描) + SkillCurator (伞形整合) + 前端 MemoriesPage/SkillsPage | ✅ 核心完成 |
 | Phase 7 | TRPG 模式：完整跑团功能集成 | 待开始 |
 | Phase 8 | 优化与发布：性能、监控、部署 | 待开始 |
 

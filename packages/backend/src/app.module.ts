@@ -15,7 +15,10 @@ import { SettingsModule } from './settings/settings.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
 import { SecurityModule } from './security/security.module';
 import { AceModule } from './ace/ace.module';
+import { DreamModule } from './dream/dream.module';
+import { SkillModule } from './skill/skill.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { BullModule } from '@nestjs/bullmq';
 
 /**
  * Walk up from startDir to find the monorepo root containing `.env`.
@@ -54,7 +57,16 @@ function findEnvPath(startDir: string): string {
     OrchestrationModule,
     SecurityModule,
     AceModule,
+    DreamModule,
+    SkillModule,
     EventEmitterModule.forRoot(),
+    BullModule.forRoot({
+      connection: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: Number(process.env.REDIS_PORT) || 6379,
+        password: process.env.REDIS_PASSWORD || undefined,
+      },
+    }),
   ],
   controllers: [AppController],
 })
