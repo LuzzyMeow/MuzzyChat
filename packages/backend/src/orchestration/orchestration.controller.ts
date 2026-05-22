@@ -1,6 +1,7 @@
-import { Controller, Post, Param, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Param, Body, Logger, NotFoundException } from '@nestjs/common';
 import { AgentRecruitService } from './agent-recruit.service';
 import { ParallelOrchestrator } from './parallel-orchestrator.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 // ── DTOs ─────────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ export class OrchestrationController {
   constructor(
     private readonly agentRecruitService: AgentRecruitService,
     private readonly parallelOrchestrator: ParallelOrchestrator,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -52,6 +54,14 @@ export class OrchestrationController {
     @Param('groupId') groupId: string,
     @Body() dto: ParseDto,
   ) {
+    // Validate group exists and is not deleted
+    const group = await this.prisma.chatGroup.findFirst({
+      where: { id: groupId, deletedAt: null },
+    });
+    if (!group) {
+      throw new NotFoundException(`群组 ${groupId} 不存在`);
+    }
+
     const result = await this.agentRecruitService.parse(dto.description);
     if (!result) {
       return {
@@ -76,6 +86,14 @@ export class OrchestrationController {
     @Param('groupId') groupId: string,
     @Body() dto: { agents: { name: string; avatarStyle: string; profession: string; personality: string; background: string; scenario: string }[] },
   ) {
+    // Validate group exists and is not deleted
+    const group = await this.prisma.chatGroup.findFirst({
+      where: { id: groupId, deletedAt: null },
+    });
+    if (!group) {
+      throw new NotFoundException(`群组 ${groupId} 不存在`);
+    }
+
     const created = await this.agentRecruitService.createAgentsForGroup(
       groupId,
       dto.agents,

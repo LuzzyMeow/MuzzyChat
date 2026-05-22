@@ -86,30 +86,24 @@ export class DynamicDiscussionCoordinator {
 
     const results = await Promise.allSettled(
       members.map(async (member) => {
-        try {
-          // Broadcast peer message to agent (02-群聊设计 §2.2.1)
-          this.chatGateway.emitAgentPeerMessage(conversationId, {
-            fromAgentId: 'system',
-            content: peerMessagesText,
-            messageId: `dynamic_${conversationId}_round_${nextRound}`,
-          });
+        // Broadcast peer message to agent (02-群聊设计 §2.2.1)
+        this.chatGateway.emitAgentPeerMessage(conversationId, {
+          fromAgentId: 'system',
+          content: peerMessagesText,
+          messageId: `dynamic_${conversationId}_round_${nextRound}`,
+        });
 
-          // Run agent loop with decision prompt
-          await this.agentLoopService.runAgentLoop({
-            agentId: member.agentId,
-            conversationId,
-            userMessage: decisionPrompt,
-          });
+        // Run agent loop with decision prompt, capture response for [SKIP] detection
+        // (02-群聊设计 §2.2.3: 精确匹配 [SKIP]、空内容、失败均视为跳过)
+        const response = await this.agentLoopService.runAgentLoop({
+          agentId: member.agentId,
+          conversationId,
+          userMessage: decisionPrompt,
+        });
 
-          return { agentId: member.agentId, skipped: false };
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : 'Unknown';
-          this.logger.warn(
-            `Agent ${member.agentId} failed in dynamic round: ${msg}`,
-          );
-          // LLM 调用失败视为 SKIP (02-群聊设计 §2.2.3)
-          return { agentId: member.agentId, skipped: true };
-        }
+        const trimmed = response.trim();
+        const skipped = !trimmed || trimmed === '[SKIP]';
+        return { agentId: member.agentId, skipped };
       }),
     );
 

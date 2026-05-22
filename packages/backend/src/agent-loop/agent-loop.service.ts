@@ -66,12 +66,13 @@ export class AgentLoopService {
   /**
    * Run the ReAct loop for an agent responding to a user message.
    * Spawned asynchronously — does not block the WebSocket handler.
+   * Returns the final agent response content for SKIP detection etc.
    */
   async runAgentLoop(params: {
     agentId: string;
     conversationId: string;
     userMessage: string;
-  }): Promise<void> {
+  }): Promise<string> {
     const { agentId, conversationId, userMessage } = params;
 
     try {
@@ -81,7 +82,7 @@ export class AgentLoopService {
       });
       if (!agent) {
         this.logger.warn(`Agent ${agentId} not found, skipping loop`);
-        return;
+        return '';
       }
 
       // 2. Resolve model
@@ -124,6 +125,7 @@ export class AgentLoopService {
       this.logger.log(
         `Agent loop completed: ${agentId} in conversation ${conversationId}`,
       );
+      return finalContent;
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Agent loop failed: ${msg}`);
@@ -138,6 +140,7 @@ export class AgentLoopService {
         code: 'AGENT_LOOP_ERROR',
         message: msg,
       });
+      return '';
     }
   }
 

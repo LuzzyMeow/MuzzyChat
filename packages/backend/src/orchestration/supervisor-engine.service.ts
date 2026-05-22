@@ -443,11 +443,13 @@ export class SupervisorEngine {
             subtask.error = msg;
             subtask.retryCount++;
 
-            // 重试 (02-群聊设计 §4.3.3)
+            // 重试 (02-群聊设计 §4.3.3: 指数退避 1s/2s/4s)
             if (subtask.retryCount < subtask.maxRetries) {
+              const delayMs = 1000 * 2 ** (subtask.retryCount - 1);
               this.logger.warn(
-                `Subtask ${subtask.subtaskId} failed, retrying (${subtask.retryCount}/${subtask.maxRetries})`,
+                `Subtask ${subtask.subtaskId} failed, retrying in ${delayMs}ms (${subtask.retryCount}/${subtask.maxRetries})`,
               );
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
               subtask.status = SubtaskStatus.Pending;
             } else {
               subtask.status = SubtaskStatus.Failed;
@@ -485,11 +487,12 @@ export class SupervisorEngine {
   }
 
   private allSubtasksCompleted(plan: ExecutionPlan): boolean {
+    // 02-群聊设计 §4.3.1: 仅 Completed || Skipped 视为完成
+    // Failed 子任务应触发 replan，不视为正常完成
     return plan.subtasks.every(
       (s) =>
         s.status === SubtaskStatus.Completed ||
-        s.status === SubtaskStatus.Skipped ||
-        s.status === SubtaskStatus.Failed,
+        s.status === SubtaskStatus.Skipped,
     );
   }
 
