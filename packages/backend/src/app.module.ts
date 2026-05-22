@@ -13,6 +13,7 @@ import { AgentLoopModule } from './agent-loop/agent-loop.module';
 import { ModelProviderModule } from './model-provider/model-provider.module';
 import { SettingsModule } from './settings/settings.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
+import { SecurityModule } from './security/security.module';
 
 /**
  * Walk up from startDir to find the monorepo root containing `.env`.
@@ -49,6 +50,7 @@ function findEnvPath(startDir: string): string {
     ModelProviderModule,
     SettingsModule,
     OrchestrationModule,
+    SecurityModule,
   ],
   controllers: [AppController],
 })

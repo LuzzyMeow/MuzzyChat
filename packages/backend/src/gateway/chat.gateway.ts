@@ -17,6 +17,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AgentLoopService } from '../agent-loop/agent-loop.service';
 import { ParallelOrchestrator } from '../orchestration/parallel-orchestrator.service';
 import { SupervisorEngine } from '../orchestration/supervisor-engine.service';
+import { ApprovalTimeoutService } from '../security/approval-timeout.service';
+import { ToolExecutorService } from '../security/tool-executor.service';
 import { MessageType } from '../../generated/prisma/enums';
 
 const VALID_MESSAGE_TYPES = new Set<string>(Object.values(MessageType));
@@ -42,6 +44,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly parallelOrchestrator: ParallelOrchestrator,
     @Inject(forwardRef(() => SupervisorEngine))
     private readonly supervisorEngine: SupervisorEngine,
+    private readonly approvalTimeout: ApprovalTimeoutService,
+    private readonly toolExecutor: ToolExecutorService,
   ) {}
 
   handleConnection(client: Socket) {
@@ -213,6 +217,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       const status = payload.decision === 'approved' ? 'approved' : 'rejected';
+
+      // Phase 4: Cancel approval timeout
+      this.approvalTimeout.cancel(payload.approvalId);
+
+      // Phase 4: Audit approval decision
+      let targetArgs: Record<string, unknown> = {};
+      try {
+        targetArgs = JSON.parse(existing.target ?? '{}');
+      } catch {
+        targetArgs = { target: existing.target ?? '' };
+      }
+      await this.toolExecutor.auditApproval(
+        payload.decision === 'approved' ? 'approved' : 'rejected',
+        existing.toolName ?? 'unknown',
+        targetArgs,
+        { agentId: existing.agentId, agentName: undefined, conversationId: existing.conversationId, noReviewMode: false },
+        { requiresApproval: true, riskLevel: (existing.riskLevel as 'low' | 'medium' | 'high' | 'critical') ?? 'high' },
+        payload.approvalId,
+      );
 
       const [approval] = await this.prisma.$transaction([
         this.prisma.approvalRequest.update({

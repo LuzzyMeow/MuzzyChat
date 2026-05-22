@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
 import { ChatGateway } from '../gateway/chat.gateway';
+import { ToolExecutorService } from '../security/tool-executor.service';
+import { ApprovalTimeoutService } from '../security/approval-timeout.service';
 import {
   Annotation,
   StateGraph,
@@ -18,7 +20,7 @@ import {
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages';
-import { filterTools, TOOL_MAP, HIGH_RISK_TOOLS } from './tools';
+import { filterTools, TOOL_MAP } from './tools';
 import type { ChatOpenAI } from '@langchain/openai';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 
@@ -59,6 +61,8 @@ export class AgentLoopService {
     private readonly prisma: PrismaService,
     private readonly llmService: LlmService,
     private readonly chatGateway: ChatGateway,
+    private readonly toolExecutor: ToolExecutorService,
+    private readonly approvalTimeout: ApprovalTimeoutService,
   ) {}
 
   // ── Public API ──────────────────────────────────────────────
@@ -95,11 +99,14 @@ export class AgentLoopService {
       // 4. Load conversation history (last 20 messages for context window)
       const recentMessages = await this.loadRecentMessages(conversationId, 20);
 
-      // 5. Build & compile graph
-      const threadId = `agent-${agentId}-${Date.now()}`;
-      const graph = this.buildGraph(llmWithTools, agent.systemPrompt, agent.tools);
+      // 5. Check no-review mode (03 §5.5)
+      const noReviewMode = await this.isNoReviewMode();
 
-      // 6. Execute with streaming (with 180s timeout)
+      // 6. Build & compile graph
+      const threadId = `agent-${agentId}-${Date.now()}`;
+      const graph = this.buildGraph(llmWithTools, agent.systemPrompt, agent.tools, noReviewMode);
+
+      // 7. Execute with streaming (with 180s timeout)
       const input = {
         messages: [
           ...recentMessages,
@@ -119,7 +126,7 @@ export class AgentLoopService {
         stream, threadId, { agentId, conversationId, agentName: agent.name },
       );
 
-      // 7. Persist final message
+      // 8. Persist final message
       await this.finalizeLoop(conversationId, agentId, agent.name, finalContent);
 
       this.logger.log(
@@ -129,7 +136,6 @@ export class AgentLoopService {
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Agent loop failed: ${msg}`);
-      // Clean up any active loop entry (e.g., if timed out after an interrupt)
       const loopKey = `${params.conversationId}::${params.agentId}`;
       this.activeLoops.delete(loopKey);
       this.chatGateway.emitAgentThinking(params.conversationId, {
@@ -168,9 +174,10 @@ export class AgentLoopService {
       const model = await this.resolveModel(agent.assignedModelId);
       const agentTools = filterTools(agent.tools);
       const llmWithTools = model.bindTools(agentTools as StructuredToolInterface[]);
-      const graph = this.buildGraph(llmWithTools, agent.systemPrompt, agent.tools);
+      const noReviewMode = await this.isNoReviewMode();
+      const graph = this.buildGraph(llmWithTools, agent.systemPrompt, agent.tools, noReviewMode);
 
-      // Resume with Command (with timeout)
+      // Resume with Command
       const stream = await graph.stream(
         new Command({ resume: approvalResult }),
         {
@@ -204,10 +211,6 @@ export class AgentLoopService {
 
   // ── Stream processing (shared by runAgentLoop & resumeLoop) ──
 
-  /**
-   * Iterate a LangGraph stream with timeout protection and HITL interrupt handling.
-   * Returns the final AI content string (empty if interrupted or timed out).
-   */
   private async processStream(
     stream: AsyncIterable<Record<string, unknown>>,
     threadId: string,
@@ -224,7 +227,6 @@ export class AgentLoopService {
       for await (const update of stream) {
         if (isTimedOut) return;
 
-        // Check for interrupt (HITL pause)
         if ('__interrupt__' in update) {
           const interruptData = (update as Record<string, unknown>).__interrupt__;
           await this.handleApprovalInterrupt(
@@ -232,10 +234,9 @@ export class AgentLoopService {
             loopInfo,
             interruptData as ApprovalInterruptData,
           );
-          return; // Loop pauses here; resumed via resumeLoop()
+          return;
         }
 
-        // Process agent node output
         if ('agent' in update) {
           const agentUpdate = update.agent as { messages?: BaseMessage[] };
           if (agentUpdate.messages) {
@@ -281,9 +282,6 @@ export class AgentLoopService {
     return isTimedOut ? '' : finalContent;
   }
 
-  /**
-   * Persist the final agent message and emit completion/thinking-stop signals.
-   */
   private async finalizeLoop(
     conversationId: string,
     agentId: string,
@@ -315,6 +313,7 @@ export class AgentLoopService {
     llm: ReturnType<ChatOpenAI['bindTools']>,
     systemPrompt: string,
     enabledToolNames: string[],
+    noReviewMode: boolean,
   ) {
     const service = this;
     const enabledSet = new Set(enabledToolNames);
@@ -339,7 +338,7 @@ export class AgentLoopService {
       };
     }
 
-    // ── Node: tools ────────────────────────────────────────────
+    // ── Node: tools (Phase 4: RiskEngine + Whitelist + Audit) ──
     async function toolsNode(
       state: AgentStateType,
     ): Promise<Partial<AgentStateType>> {
@@ -360,19 +359,35 @@ export class AgentLoopService {
           input: toolArgs,
         });
 
+        const startTime = Date.now();
+
         try {
-          // HITL check for high-risk tools
-          if (HIGH_RISK_TOOLS.has(toolName)) {
+          // ── Phase 4: Pre-execution risk check (03 §6.2) ──
+          const preCheck = await service.toolExecutor.preCheck(
+            toolName,
+            toolArgs,
+            {
+              agentId: state.agentId,
+              agentName: undefined,
+              conversationId: state.conversationId,
+              noReviewMode,
+            },
+          );
+
+          // ── Approval required? ──────────────────────────
+          if (preCheck.shouldInterrupt) {
+            const riskResult = preCheck.riskResult;
             const approval = interrupt({
               toolName,
               toolArgs,
               agentId: state.agentId,
               conversationId: state.conversationId,
-              riskLevel: 'high',
-              reason: `Agent wants to execute ${toolName}`,
+              riskLevel: riskResult.riskLevel ?? 'high',
+              matchedRule: riskResult.matchedRule ?? 'unknown',
+              reason: riskResult.reason ?? `Agent requests ${toolName}`,
+              indirectCall: riskResult.indirectCall,
             }) as ApprovalResult;
 
-            // Defensive check: ensure resume value has expected shape
             if (!approval || typeof approval.approved !== 'boolean') {
               results.push(
                 new ToolMessage({
@@ -402,9 +417,10 @@ export class AgentLoopService {
               });
               continue;
             }
+            // Approved — whitelist handled by handleApprovalInterrupt
           }
 
-          // Find tool by name in registry
+          // ── Find & execute tool ─────────────────────────
           const matchedTool = TOOL_MAP.get(toolName);
           if (!matchedTool) {
             results.push(
@@ -421,7 +437,6 @@ export class AgentLoopService {
             continue;
           }
 
-          // Defense-in-depth: verify tool is in agent's enabled set
           if (!enabledSet.has(toolName)) {
             results.push(
               new ToolMessage({
@@ -439,6 +454,21 @@ export class AgentLoopService {
 
           const result = await matchedTool.invoke(toolArgs);
           const content = typeof result === 'string' ? result : JSON.stringify(result);
+          const execTime = Date.now() - startTime;
+
+          // ── Phase 4: Audit tool execution (03 §4.3) ──
+          await service.toolExecutor.auditExecution(
+            toolName,
+            toolArgs,
+            {
+              agentId: state.agentId,
+              agentName: undefined,
+              conversationId: state.conversationId,
+              noReviewMode,
+            },
+            { success: true, output: content.slice(0, 500), executionTimeMs: execTime },
+            preCheck.whitelistHit,
+          );
 
           results.push(
             new ToolMessage({
@@ -454,6 +484,22 @@ export class AgentLoopService {
           });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown error';
+          const execTime = Date.now() - startTime;
+
+          // Audit tool failure
+          await service.toolExecutor.auditExecution(
+            toolName,
+            toolArgs,
+            {
+              agentId: state.agentId,
+              agentName: undefined,
+              conversationId: state.conversationId,
+              noReviewMode,
+            },
+            { success: false, error: msg, executionTimeMs: execTime },
+            false,
+          ).catch(() => {});
+
           results.push(
             new ToolMessage({
               tool_call_id: toolCall.id!,
@@ -475,7 +521,6 @@ export class AgentLoopService {
     function router(state: AgentStateType): 'tools' | typeof END {
       const lastMessage = state.messages[state.messages.length - 1];
 
-      // Hard limit: 15 iterations
       if (state.iterationCount >= 15) {
         service.logger.warn(
           `Agent ${state.agentId} hit iteration limit (15)`,
@@ -524,7 +569,6 @@ export class AgentLoopService {
       select: { role: true, content: true, agentId: true },
     });
 
-    // Reverse to chronological order for LLM context
     return messages.reverse().map((m) => {
       if (m.role === 'user') return new HumanMessage(m.content);
       return new AIMessage({ content: m.content });
@@ -547,12 +591,26 @@ export class AgentLoopService {
     });
   }
 
+  /**
+   * Check if no-review mode is enabled (03 §5.5).
+   */
+  private async isNoReviewMode(): Promise<boolean> {
+    try {
+      const setting = await this.prisma.settings.findUnique({
+        where: { key: 'approval.bypass_all' },
+      });
+      if (!setting) return false;
+      return JSON.parse(setting.value) === true;
+    } catch {
+      return false;
+    }
+  }
+
   private async handleApprovalInterrupt(
     threadId: string,
     loopInfo: { agentId: string; conversationId: string },
     interruptData: ApprovalInterruptData,
   ) {
-    // Store thread mapping for resume (compound key for multi-agent group chat)
     const key = `${loopInfo.conversationId}::${loopInfo.agentId}`;
     this.activeLoops.set(key, {
       threadId,
@@ -560,7 +618,6 @@ export class AgentLoopService {
       conversationId: loopInfo.conversationId,
     });
 
-    // Derive risk level from interrupt data (default 'high' for HIGH_RISK_TOOLS)
     const VALID_RISK_LEVELS = new Set(['low', 'medium', 'high', 'critical']);
     const riskLevel = VALID_RISK_LEVELS.has(interruptData.riskLevel)
       ? (interruptData.riskLevel as 'low' | 'medium' | 'high' | 'critical')
@@ -575,10 +632,17 @@ export class AgentLoopService {
         operation: interruptData.toolName,
         toolName: interruptData.toolName,
         reason: interruptData.reason,
-        riskLevel: riskLevel,
+        riskLevel,
         status: 'pending',
       },
     });
+
+    // Phase 4: Schedule approval timeout (03 §2.6)
+    this.approvalTimeout.schedule(
+      approval.id,
+      loopInfo.conversationId,
+      loopInfo.agentId,
+    );
 
     // Emit approval card to frontend
     this.chatGateway.emitApprovalRequest(loopInfo.conversationId, {
@@ -592,7 +656,7 @@ export class AgentLoopService {
     });
 
     this.logger.log(
-      `HITL interrupt: agent=${loopInfo.agentId} tool=${interruptData.toolName}`,
+      `HITL interrupt: agent=${loopInfo.agentId} tool=${interruptData.toolName} risk=${riskLevel}`,
     );
   }
 }
@@ -605,7 +669,14 @@ interface ApprovalInterruptData {
   agentId: string;
   conversationId: string;
   riskLevel: string;
+  matchedRule?: string;
   reason: string;
+  indirectCall?: {
+    isIndirect: boolean;
+    depth: number;
+    innerCommands: string[];
+    matchedRules: string[];
+  };
 }
 
 interface ApprovalResult {

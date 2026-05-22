@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AgentLoopService } from '../agent-loop/agent-loop.service';
 import { ParallelOrchestrator } from '../orchestration/parallel-orchestrator.service';
 import { SupervisorEngine } from '../orchestration/supervisor-engine.service';
+import { ApprovalTimeoutService } from '../security/approval-timeout.service';
+import { ToolExecutorService } from '../security/tool-executor.service';
 
 describe('ChatGateway', () => {
   let gateway: ChatGateway;
@@ -46,6 +48,15 @@ describe('ChatGateway', () => {
     start: jest.fn(),
   };
 
+  const mockApprovalTimeout = {
+    schedule: jest.fn(),
+    cancel: jest.fn(),
+  };
+
+  const mockToolExecutor = {
+    auditApproval: jest.fn().mockResolvedValue(undefined),
+  };
+
   const mockServer = {
     to: jest.fn().mockReturnThis(),
     emit: jest.fn(),
@@ -77,6 +88,14 @@ describe('ChatGateway', () => {
         {
           provide: SupervisorEngine,
           useValue: mockSupervisorEngine,
+        },
+        {
+          provide: ApprovalTimeoutService,
+          useValue: mockApprovalTimeout,
+        },
+        {
+          provide: ToolExecutorService,
+          useValue: mockToolExecutor,
         },
       ],
     }).compile();
