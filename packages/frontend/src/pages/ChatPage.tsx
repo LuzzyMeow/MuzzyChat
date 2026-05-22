@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Card, Spin, Tag, Typography, Space, Empty } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { Button, Card, Spin, Tag, Typography, Space, Empty, Drawer, List, Avatar, Select, Divider, message, Popconfirm } from "antd";
+import { ArrowLeftOutlined, TeamOutlined, UserAddOutlined, DeleteOutlined, UserOutlined } from "@ant-design/icons";
 import { Markdown } from "@lobehub/ui";
 import { ChatItem, ChatInputArea } from "@lobehub/ui/chat";
 import type { MetaData } from "@lobehub/ui";
 import { io, Socket } from "socket.io-client";
 import { useConversation } from "@/api/conversations";
-import { useGroup } from "@/api/groups";
+import { useGroup, useGroupMembers } from "@/api/groups";
+import { addMember, removeMember } from "@/api/groups";
+import { useAgents } from "@/api/agents";
 
 const { Text } = Typography;
 
@@ -38,6 +40,50 @@ export default function ChatPage() {
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingAgentId, setStreamingAgentId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+
+  // Member management
+  const [memberDrawerOpen, setMemberDrawerOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [addingMember, setAddingMember] = useState(false);
+  const { data: members, isLoading: membersLoading } = useGroupMembers(group?.id);
+  const { data: allAgents } = useAgents();
+
+  const handleAddMember = useCallback(async () => {
+    if (!group?.id || !selectedAgentId) return;
+    setAddingMember(true);
+    try {
+      await addMember(group.id, selectedAgentId);
+      message.success("成员已添加");
+      setSelectedAgentId(null);
+    } catch (err) {
+      message.error(String(err));
+    } finally {
+      setAddingMember(false);
+    }
+  }, [group?.id, selectedAgentId]);
+
+  const handleRemoveMember = useCallback(
+    async (agentId: string) => {
+      if (!group?.id) return;
+      try {
+        await removeMember(group.id, agentId);
+        message.success("成员已移除");
+      } catch (err) {
+        message.error(String(err));
+      }
+    },
+    [group?.id],
+  );
+
+  // Build member list with agent names
+  const memberList = (members ?? []).map((m) => ({
+    ...m,
+    agentName: m.agent?.name ?? m.agentId,
+  }));
+
+  // Agent options for adding new members (exclude existing members)
+  const existingAgentIds = new Set((members ?? []).map((m) => m.agentId));
+  const addableAgents = (allAgents ?? []).filter((a) => !existingAgentIds.has(a.id));
 
   useEffect(() => {
     if (!id) return;
@@ -151,6 +197,14 @@ export default function ChatPage() {
           </Tag>
         )}
         <Space style={{ marginLeft: "auto" }}>
+          {group && (
+            <Button
+              icon={<TeamOutlined />}
+              onClick={() => setMemberDrawerOpen(true)}
+            >
+              成员 ({memberList.length})
+            </Button>
+          )}
           <Tag color={connected ? "green" : "red"}>
             {connected ? "已连接" : "未连接"}
           </Tag>
@@ -243,6 +297,91 @@ export default function ChatPage() {
           </Space>
         </Card>
       )}
+
+      {/* Member Management Drawer */}
+      <Drawer
+        title={`群组成员 (${memberList.length})`}
+        open={memberDrawerOpen}
+        onClose={() => setMemberDrawerOpen(false)}
+        width={400}
+        extra={
+          <Button
+            type="primary"
+            icon={<UserAddOutlined />}
+            loading={addingMember}
+            disabled={!selectedAgentId}
+            onClick={handleAddMember}
+          >
+            添加
+          </Button>
+        }
+      >
+        {/* Add member area */}
+        <div style={{ marginBottom: 16 }}>
+          <Text strong style={{ display: "block", marginBottom: 8 }}>添加成员</Text>
+          <Select
+            style={{ width: "100%" }}
+            placeholder="选择 Agent..."
+            value={selectedAgentId}
+            onChange={setSelectedAgentId}
+            options={addableAgents.map((a) => ({
+              value: a.id,
+              label: a.name,
+            }))}
+            showSearch
+            optionFilterProp="label"
+            notFoundContent={addableAgents.length === 0 ? "所有 Agent 已在群组中" : undefined}
+          />
+        </div>
+
+        <Divider />
+
+        {/* Member list */}
+        {membersLoading ? (
+          <div style={{ textAlign: "center", padding: 40 }}><Spin /></div>
+        ) : memberList.length === 0 ? (
+          <Empty description="暂无成员" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <List
+            dataSource={memberList}
+            renderItem={(member) => (
+              <List.Item
+                actions={[
+                  <Popconfirm
+                    key="remove"
+                    title="确定移除此成员？"
+                    onConfirm={() => handleRemoveMember(member.agentId)}
+                  >
+                    <Button
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      type="text"
+                    />
+                  </Popconfirm>,
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={
+                    <Avatar icon={<UserOutlined />} style={{ backgroundColor: "#1677ff" }} />
+                  }
+                  title={member.agentName}
+                  description={
+                    <Space size={4}>
+                      <Tag color={member.enabled ? "green" : "default"}>
+                        {member.enabled ? "已启用" : "已禁用"}
+                      </Tag>
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {new Date(member.joinedAt).toLocaleDateString("zh-CN")}
+                      </Text>
+                    </Space>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }
