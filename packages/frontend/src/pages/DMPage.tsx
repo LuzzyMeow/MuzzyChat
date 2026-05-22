@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Input, Button, Card, Tag, Typography, Empty } from "antd";
 import { SendOutlined, ArrowLeftOutlined } from "@ant-design/icons";
+import { Markdown } from "@lobehub/ui";
 import { io, Socket } from "socket.io-client";
 import { useConversation } from "@/api/conversations";
 import { useAgent } from "@/api/agents";
@@ -190,14 +191,18 @@ export default function DMPage() {
                     </Text>
                   </div>
                 )}
-                <div
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {msg.content}
-                </div>
+                {msg.role === "assistant" ? (
+                  <Markdown style={{ fontSize: 14 }}>{msg.content}</Markdown>
+                ) : (
+                  <div
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+                )}
                 <Text
                   type="secondary"
                   style={{
