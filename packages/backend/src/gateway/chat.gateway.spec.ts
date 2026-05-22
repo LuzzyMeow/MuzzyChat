@@ -465,6 +465,7 @@ describe('ChatGateway', () => {
       expect(mockServer.to).toHaveBeenCalledWith('conversation:conv-001');
       expect(mockServer.emit).toHaveBeenCalledWith('message:complete', {
         message: {
+          id: 'msg-001',
           role: 'assistant',
           content: 'Full reply',
           agentId: 'agent-001',

@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Input, Button, Card, Tag, Typography, Empty } from "antd";
-import { SendOutlined, ArrowLeftOutlined } from "@ant-design/icons";
+import { Button, Card, Tag, Typography, Empty } from "antd";
+import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Markdown } from "@lobehub/ui";
+import { ChatItem, ChatInputArea } from "@lobehub/ui/chat";
+import type { MetaData } from "@lobehub/ui";
 import { io, Socket } from "socket.io-client";
 import { useConversation } from "@/api/conversations";
 import { useAgent } from "@/api/agents";
@@ -10,11 +12,17 @@ import { useAgent } from "@/api/agents";
 const { Text } = Typography;
 
 interface ChatMessage {
+  id?: string;
   role: string;
   content: string;
   agentId?: string;
   agentName?: string;
   timestamp: string;
+}
+
+let dmMsgCounter = 0;
+function genDmMsgId() {
+  return `dm-${++dmMsgCounter}-${Date.now()}`;
 }
 
 export default function DMPage() {
@@ -26,6 +34,8 @@ export default function DMPage() {
   const [inputValue, setInputValue] = useState("");
   const [connected, setConnected] = useState(false);
   const [agentThinking, setAgentThinking] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
+  const [streamingAgentId, setStreamingAgentId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
   const { data: agentObj } = useAgent(agentId);
@@ -52,29 +62,15 @@ export default function DMPage() {
       "message:complete",
       (payload: { message: ChatMessage; conversationId: string }) => {
         if (!conversationId) setConversationId(payload.conversationId);
+        setStreamingContent("");
+        setStreamingAgentId(null);
         setMessages((prev) => [...prev, payload.message]);
       }
     );
 
     socket.on("message:stream", (payload: { content: string; agentId: string }) => {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last && last.role === "assistant" && last.agentId === payload.agentId) {
-          // Backend uses streamMode:'updates', sending full content each update.
-          // Replace last assistant message content instead of appending.
-          const updated = { ...last, content: payload.content };
-          return [...prev.slice(0, -1), updated];
-        }
-        return [
-          ...prev,
-          {
-            role: "assistant",
-            content: payload.content,
-            agentId: payload.agentId,
-            timestamp: new Date().toISOString(),
-          },
-        ];
-      });
+      setStreamingContent(payload.content);
+      setStreamingAgentId(payload.agentId);
     });
 
     socket.on("agent:thinking", (payload?: { content?: string }) => {
@@ -85,6 +81,7 @@ export default function DMPage() {
       setMessages((prev) => [
         ...prev,
         {
+          id: genDmMsgId(),
           role: "system",
           content: `错误: ${payload.message}`,
           timestamp: new Date().toISOString(),
@@ -104,13 +101,10 @@ export default function DMPage() {
     const content = inputValue.trim();
     if (!content || !socketRef.current || !agentId) return;
 
-    const userMsg: ChatMessage = {
-      role: "user",
-      content,
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [
+      ...prev,
+      { id: genDmMsgId(), role: "user", content, timestamp: new Date().toISOString() },
+    ]);
     setInputValue("");
 
     socketRef.current.emit("message:send", {
@@ -123,14 +117,35 @@ export default function DMPage() {
 
   const title = agentObj?.name ?? "私聊";
 
+  // Build all display messages: persisted + streaming placeholder
+  const displayMessages = [...messages];
+  if (streamingContent && streamingAgentId) {
+    displayMessages.push({
+      id: "streaming",
+      role: "assistant",
+      content: streamingContent,
+      agentId: streamingAgentId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  const messageListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (messageListRef.current) {
+      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+    }
+  }, [displayMessages.length, streamingContent]);
+
   return (
-    <div style={{ maxWidth: 800, margin: "0 auto" }}>
+    <div style={{ maxWidth: 800, margin: "0 auto", display: "flex", flexDirection: "column", height: "calc(100vh - 48px)" }}>
+      {/* Header */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 12,
-          marginBottom: 16,
+          padding: "8px 0",
+          flexShrink: 0,
         }}
       >
         <Button
@@ -142,106 +157,75 @@ export default function DMPage() {
           {connected ? "已连接" : "未连接"}
         </Tag>
         {agentThinking && (
-          <Tag color="orange">Agent 思考中...</Tag>
+          <Tag color="orange">思考中...</Tag>
         )}
       </div>
 
+      {/* Messages */}
       <Card
-        styles={{ body: { padding: 12 } }}
-        style={{ marginBottom: 12 }}
+        styles={{ body: { padding: 0 } }}
+        style={{ flex: 1, marginBottom: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}
       >
         <div
+          ref={messageListRef}
           style={{
-            minHeight: 400,
-            maxHeight: "calc(100vh - 240px)",
+            flex: 1,
             overflowY: "auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
+            padding: "12px 16px",
           }}
         >
-          {messages.length === 0 ? (
+          {displayMessages.length === 0 ? (
             <Empty
               description={`向 ${title} 发送消息开始对话`}
               style={{ marginTop: 80 }}
             />
           ) : (
-            messages.map((msg, i) => (
-              <div
-                key={i}
-                style={{
-                  alignSelf:
-                    msg.role === "user" ? "flex-end" : "flex-start",
-                  maxWidth: "80%",
-                  background:
-                    msg.role === "user"
-                      ? "#1677ff"
-                      : msg.role === "system"
-                        ? "#fff2e8"
-                        : "#f5f5f5",
-                  color: msg.role === "user" ? "#fff" : undefined,
-                  borderRadius: 8,
-                  padding: "8px 14px",
-                }}
-              >
-                {msg.role === "assistant" && msg.agentName && (
-                  <div>
-                    <Text strong style={{ fontSize: 12, color: "#1677ff" }}>
-                      {msg.agentName}
-                    </Text>
-                  </div>
-                )}
-                {msg.role === "assistant" ? (
-                  <Markdown style={{ fontSize: 14 }}>{msg.content}</Markdown>
-                ) : (
-                  <div
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {msg.content}
-                  </div>
-                )}
-                <Text
-                  type="secondary"
-                  style={{
-                    fontSize: 11,
-                    display: "block",
-                    marginTop: 4,
-                    color: msg.role === "user" ? "rgba(255,255,255,0.7)" : undefined,
-                  }}
-                >
-                  {new Date(msg.timestamp).toLocaleTimeString("zh-CN")}
-                </Text>
-              </div>
+            displayMessages.map((msg) => (
+              <ChatItem
+                key={msg.id ?? msg.timestamp}
+                avatar={
+                  msg.role === "assistant"
+                    ? ({
+                        avatar: "🤖",
+                        title: msg.agentName ?? title,
+                        backgroundColor: "#1677ff",
+                      } satisfies MetaData)
+                    : ({
+                        avatar: "👤",
+                        title: "你",
+                        backgroundColor: "#52c41a",
+                      } satisfies MetaData)
+                }
+                placement={msg.role === "user" ? "right" : "left"}
+                showTitle={msg.role === "assistant"}
+                time={new Date(msg.timestamp).getTime()}
+                loading={msg.id === "streaming"}
+                message={
+                  msg.role === "assistant" ? (
+                    <Markdown style={{ fontSize: 14 }}>{msg.content}</Markdown>
+                  ) : msg.role === "system" ? (
+                    <Text type="secondary" style={{ fontSize: 13, fontStyle: "italic" }}>{msg.content}</Text>
+                  ) : (
+                    <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 14, color: "#fff" }}>
+                      {msg.content}
+                    </div>
+                  )
+                }
+              />
             ))
           )}
         </div>
       </Card>
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <Input.TextArea
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onPressEnter={(e) => {
-            if (!e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="输入消息，按 Enter 发送，Shift+Enter 换行"
-          rows={2}
-          disabled={!connected}
+      {/* Input */}
+      <div style={{ flexShrink: 0 }}>
+        <ChatInputArea
+          placeholder={`向 ${title} 发送消息，Enter 发送，Shift+Enter 换行`}
+          onInput={(val) => setInputValue(val)}
+          onSend={handleSend}
+          loading={agentThinking}
+          style={{ width: "100%" }}
         />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSend}
-          disabled={!connected || !inputValue.trim()}
-        >
-          发送
-        </Button>
       </div>
     </div>
   );

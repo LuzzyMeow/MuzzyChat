@@ -320,6 +320,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }) {
     this.server.to(`conversation:${conversationId}`).emit('message:complete', {
       message: {
+        id: data.messageId,
         role: 'assistant',
         content: data.content,
         agentId: data.agentId,

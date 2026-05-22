@@ -29,7 +29,7 @@ MuzzyChat 旨在构建一套**从底层架构到上层体验完全自主可控**
 
 | 层 | 技术 |
 |:---|:---|
-| 前端 | React 19 + Ant Design 5.x + @lobehub/ui (Markdown 流式渲染) + zustand + SWR |
+| 前端 | React 19 + Ant Design 5.x + @lobehub/ui (ChatItem/ChatInputArea/Markdown) + zustand + SWR |
 | 后端 | NestJS + TypeScript 5.x |
 | 数据库 | PostgreSQL 16 + pgvector |
 | 缓存/队列 | Upstash Redis + BullMQ |

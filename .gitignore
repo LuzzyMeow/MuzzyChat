@@ -21,3 +21,4 @@ doc/
 
 # IDE 配置与规则（内部配置，不推送）
 .trae/
+.workbuddy/
