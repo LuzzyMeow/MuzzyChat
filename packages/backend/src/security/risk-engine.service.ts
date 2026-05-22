@@ -75,8 +75,8 @@ const BUILTIN_COMMAND_RULES: Omit<RiskRule, 'id' | 'isBuiltin'>[] = [
   { type: 'command', pattern: 'dd if=', os: 'all', riskLevel: 'critical', reason: '直接写块设备' },
   { type: 'command', pattern: 'chmod 777 /', os: 'all', riskLevel: 'high', reason: '递归开放根目录权限' },
   { type: 'command', pattern: 'chown -R', os: 'all', riskLevel: 'high', reason: '递归修改文件所有权' },
-  { type: 'command', pattern: 'curl', os: 'all', riskLevel: 'high', reason: '远程代码执行（需配合管道）' },
-  { type: 'command', pattern: 'wget', os: 'all', riskLevel: 'high', reason: '远程代码执行（需配合管道）' },
+  { type: 'command', pattern: 'curl ', os: 'all', riskLevel: 'high', reason: '远程代码执行（检测管道 + bash/sh/zsh 模式）' },
+  { type: 'command', pattern: 'wget ', os: 'all', riskLevel: 'high', reason: '远程代码执行（检测管道 + bash/sh/zsh 模式）' },
   { type: 'command', pattern: 'crontab -r', os: 'all', riskLevel: 'medium', reason: '删除所有定时任务' },
   { type: 'command', pattern: 'systemctl disable', os: 'linux', riskLevel: 'medium', reason: '禁用服务（含防火墙）' },
   { type: 'command', pattern: 'systemctl stop', os: 'linux', riskLevel: 'medium', reason: '停止服务（含防火墙）' },
@@ -84,6 +84,7 @@ const BUILTIN_COMMAND_RULES: Omit<RiskRule, 'id' | 'isBuiltin'>[] = [
   { type: 'command', pattern: 'iptables -F', os: 'linux', riskLevel: 'medium', reason: '清空所有防火墙规则' },
   { type: 'command', pattern: 'format C:', os: 'windows', riskLevel: 'critical', reason: 'Windows 格式化 C 盘' },
   { type: 'command', pattern: 'del /s /q', os: 'windows', riskLevel: 'critical', reason: '递归删除文件' },
+  { type: 'command', pattern: ':(){ :|:& };:', os: 'all', riskLevel: 'critical', reason: 'Fork 炸弹，耗尽系统资源' },
 ];
 
 function toFullRules(rules: Omit<RiskRule, 'id' | 'isBuiltin'>[]): RiskRule[] {

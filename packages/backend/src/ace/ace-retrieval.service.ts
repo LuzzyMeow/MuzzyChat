@@ -93,18 +93,37 @@ export class AceRetrievalService {
 
   /**
    * Format retrieved cards for injection into Agent system prompt (04 §1.5.4).
+   * Token budget: 500 tokens. Cards trimmed from lowest similarity when over budget.
    */
-  formatForContext(cards: RetrievedCard[]): string {
+  formatForContext(cards: RetrievedCard[], tokenBudget = 500): string {
     if (cards.length === 0) return '';
 
-    const lines = ['## 相关历史经验（策略卡片）', ''];
-    for (const card of cards) {
-      const resultIcon = card.result === 'success' ? '✅' : '❌';
-      lines.push(
-        `- ${resultIcon} [${card.scope}] **${card.goal}**\n  ${card.lesson}\n  _评分: ${card.score.toFixed(2)} | 工具: ${card.toolsUsed.join(', ') || '无'}_`,
-      );
+    const header = '[策略经验]\n以下是你在历史交互中积累的经验教训，请在回复时参考：\n';
+    let usedTokens = this.estimateTokens(header);
+    const lines: string[] = [];
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const prefix = card.result === 'success' ? '[成功]' : '[失败]';
+      const line = `${i + 1}. ${prefix} ${card.lesson}`;
+      const estimatedTokens = this.estimateTokens(line);
+
+      if (usedTokens + estimatedTokens > tokenBudget) break;
+
+      lines.push(line);
+      usedTokens += estimatedTokens;
     }
-    return lines.join('\n');
+
+    if (lines.length === 0) return '';
+    return header + lines.join('\n');
+  }
+
+  /**
+   * Estimate token count for a string (rough: ~2 chars per token for CJK, ~4 for Latin).
+   * Per 04 §1.5.4.
+   */
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 2);
   }
 
   // ── Helpers ─────────────────────────────────────────────

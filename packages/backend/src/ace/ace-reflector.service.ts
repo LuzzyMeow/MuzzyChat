@@ -266,13 +266,17 @@ export class AceReflectorService {
     let deletedCount = 0;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    // Rule 1: score < 0.2 and not retrieved recently
+    // Rule 1: score < 0.2 and not retrieved in 30 days (04 §1.3.3)
+    // Use lastRetrievedAt (not updatedAt) — card may be frequently retrieved but never modified
     const staleCards = await this.prisma.strategyCard.findMany({
       where: {
         agentId,
         status: 'active',
-        updatedAt: { lt: thirtyDaysAgo },
         score: { lt: 0.2 },
+        OR: [
+          { lastRetrievedAt: { lt: thirtyDaysAgo } },
+          { lastRetrievedAt: null },
+        ],
       },
     });
 
