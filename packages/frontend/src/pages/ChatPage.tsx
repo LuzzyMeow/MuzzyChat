@@ -1,17 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Card, Spin, Tag, Typography, Space, Empty, Drawer, List, Avatar, Select, Divider, message, Popconfirm } from "antd";
-import { ArrowLeftOutlined, TeamOutlined, UserAddOutlined, DeleteOutlined, UserOutlined } from "@ant-design/icons";
+import { Button, Card, Spin, Tag, Typography, Space, Empty, Drawer, List, Avatar, Select, Divider, message, Popconfirm, Switch, Input, Dropdown } from "antd";
+import { ArrowLeftOutlined, TeamOutlined, UserAddOutlined, DeleteOutlined, UserOutlined, SwapOutlined, RobotOutlined } from "@ant-design/icons";
 import { Markdown } from "@lobehub/ui";
 import { ChatItem, ChatInputArea } from "@lobehub/ui/chat";
 import type { MetaData } from "@lobehub/ui";
 import { io, Socket } from "socket.io-client";
 import { useConversation } from "@/api/conversations";
-import { useGroup, useGroupMembers } from "@/api/groups";
+import { useGroup, useGroupMembers, updateGroup } from "@/api/groups";
 import { addMember, removeMember } from "@/api/groups";
 import { useAgents } from "@/api/agents";
+import { TaskBoard, useTaskBoard } from "@/components/TaskBoard";
+import { post } from "@/api/client";
 
 const { Text } = Typography;
+const { TextArea } = Input;
 
 interface ChatMessage {
   id?: string;
@@ -31,7 +34,7 @@ export default function ChatPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: conversation, isLoading: convLoading } = useConversation(id);
-  const { data: group } = useGroup(id);
+  const { data: group, mutate: mutateGroup } = useGroup(id);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -41,11 +44,16 @@ export default function ChatPage() {
   const [streamingAgentId, setStreamingAgentId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
+  // TaskBoard (Supervisor mode)
+  const { tasks, completedCount } = useTaskBoard(socketRef);
+
   // Member management
   const [memberDrawerOpen, setMemberDrawerOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
-  const { data: members, isLoading: membersLoading } = useGroupMembers(group?.id);
+  const [recruitInput, setRecruitInput] = useState("");
+  const [recruiting, setRecruiting] = useState(false);
+  const { data: members, isLoading: membersLoading, mutate: mutateMembers } = useGroupMembers(group?.id);
   const { data: allAgents } = useAgents();
 
   const handleAddMember = useCallback(async () => {
@@ -55,12 +63,42 @@ export default function ChatPage() {
       await addMember(group.id, selectedAgentId);
       message.success("成员已添加");
       setSelectedAgentId(null);
+      mutateMembers();
     } catch (err) {
       message.error(String(err));
     } finally {
       setAddingMember(false);
     }
-  }, [group?.id, selectedAgentId]);
+  }, [group?.id, selectedAgentId, mutateMembers]);
+
+  const handleRecruitMembers = useCallback(async () => {
+    if (!group?.id || !recruitInput.trim()) return;
+    setRecruiting(true);
+    try {
+      const res = await post<{ success: boolean; data: { name: string; avatarStyle: string; profession: string; personality: string; background: string; scenario: string }[]; message?: string }>(
+        `/api/groups/${group.id}/agents/parse`,
+        { description: recruitInput.trim() },
+      );
+
+      if (res.success && res.data) {
+        // Batch create agents for group
+        await post<{ agents: { agentId: string; name: string }[] }>(
+          `/api/groups/${group.id}/agents/batch`,
+          { agents: res.data },
+        );
+        message.success(`已添加 ${res.data.length} 个成员`);
+        setRecruitInput("");
+        mutateMembers();
+        mutateGroup();
+      } else {
+        message.warning(res.message ?? "解析失败，请手动选择 Agent");
+      }
+    } catch (err) {
+      message.error(String(err));
+    } finally {
+      setRecruiting(false);
+    }
+  }, [group?.id, recruitInput, mutateMembers, mutateGroup]);
 
   const handleRemoveMember = useCallback(
     async (agentId: string) => {
@@ -68,11 +106,12 @@ export default function ChatPage() {
       try {
         await removeMember(group.id, agentId);
         message.success("成员已移除");
+        mutateMembers();
       } catch (err) {
         message.error(String(err));
       }
     },
-    [group?.id],
+    [group?.id, mutateMembers],
   );
 
   // Build member list with agent names
@@ -84,6 +123,30 @@ export default function ChatPage() {
   // Agent options for adding new members (exclude existing members)
   const existingAgentIds = new Set((members ?? []).map((m) => m.agentId));
   const addableAgents = (allAgents ?? []).filter((a) => !existingAgentIds.has(a.id));
+
+  // Mode switching
+  const handleSwitchMode = useCallback(async () => {
+    if (!group?.id) return;
+    const newMode = group.orchestrationMode === "parallel" ? "supervisor" : "parallel";
+    try {
+      await updateGroup(group.id, { orchestrationMode: newMode });
+      message.success(`已切换为${newMode === "parallel" ? "自由发言" : "按需发言"}模式`);
+      mutateGroup();
+    } catch (err) {
+      message.error(String(err));
+    }
+  }, [group, mutateGroup]);
+
+  // Dynamic discussion toggle
+  const handleToggleDynamicDiscussion = useCallback(async (checked: boolean) => {
+    if (!group?.id) return;
+    try {
+      await updateGroup(group.id, { dynamicDiscussionEnabled: checked });
+      mutateGroup();
+    } catch (err) {
+      message.error(String(err));
+    }
+  }, [group?.id, mutateGroup]);
 
   useEffect(() => {
     if (!id) return;
@@ -115,6 +178,20 @@ export default function ChatPage() {
       setAgentThinking(payload?.content !== undefined);
     });
 
+    // Phase 3: group:member_joined event
+    socket.on("group:member_joined", (payload: { agentId: string; agentName: string }) => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: genMsgId(),
+          role: "system",
+          content: `${payload.agentName} 加入了群聊`,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      mutateMembers();
+    });
+
     socket.on("error", (payload: { message: string }) => {
       setMessages((prev) => [
         ...prev,
@@ -133,7 +210,7 @@ export default function ChatPage() {
       socket.emit("leave_room", { conversationId: id });
       socket.disconnect();
     };
-  }, [id]);
+  }, [id, mutateMembers]);
 
   const handleSend = () => {
     const content = inputValue.trim();
@@ -192,9 +269,25 @@ export default function ChatPage() {
         />
         <h2 style={{ margin: 0 }}>{title}</h2>
         {group && (
-          <Tag color="blue">
-            {group.orchestrationMode === "parallel" ? "自由发言" : "按需发言"}
-          </Tag>
+          <>
+            <Tag color={group.orchestrationMode === "parallel" ? "blue" : "purple"}>
+              {group.orchestrationMode === "parallel" ? "自由发言" : "按需发言"}
+            </Tag>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: "toggle",
+                    label: `切换为${group.orchestrationMode === "parallel" ? "按需发言 (Supervisor)" : "自由发言 (Parallel)"}`,
+                    icon: <SwapOutlined />,
+                    onClick: handleSwitchMode,
+                  },
+                ],
+              }}
+            >
+              <Button size="small" icon={<SwapOutlined />}>切换模式</Button>
+            </Dropdown>
+          </>
         )}
         <Space style={{ marginLeft: "auto" }}>
           {group && (
@@ -285,14 +378,31 @@ export default function ChatPage() {
         />
       </div>
 
+      {/* TaskBoard (Supervisor mode only) */}
+      {group?.orchestrationMode === "supervisor" && (
+        <TaskBoard tasks={tasks} completedCount={completedCount} />
+      )}
+
       {/* Group Info */}
       {group && (
         <Card size="small" style={{ marginTop: 12, flexShrink: 0 }} title="群组信息">
           <Space wrap>
             <Text>模式: {group.orchestrationMode === "parallel" ? "自由发言" : "按需发言"}</Text>
-            <Text>动态讨论: {group.dynamicDiscussionEnabled ? "开启" : "关闭"}</Text>
+            <Space>
+              <Text>动态讨论:</Text>
+              <Switch
+                size="small"
+                checked={group.dynamicDiscussionEnabled}
+                onChange={handleToggleDynamicDiscussion}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {group.dynamicDiscussionEnabled ? "已开启" : "已关闭"}
+              </Text>
+            </Space>
             {group.supervisorAgentId && (
-              <Text>主管: {group.supervisorAgentId}</Text>
+              <Text>
+                <RobotOutlined /> 主管: {group.supervisorAgentId}
+              </Text>
             )}
           </Space>
         </Card>
@@ -303,7 +413,7 @@ export default function ChatPage() {
         title={`群组成员 (${memberList.length})`}
         open={memberDrawerOpen}
         onClose={() => setMemberDrawerOpen(false)}
-        width={400}
+        width={420}
         extra={
           <Button
             type="primary"
@@ -316,9 +426,35 @@ export default function ChatPage() {
           </Button>
         }
       >
-        {/* Add member area */}
+        {/* Natural language recruit */}
         <div style={{ marginBottom: 16 }}>
-          <Text strong style={{ display: "block", marginBottom: 8 }}>添加成员</Text>
+          <Text strong style={{ display: "block", marginBottom: 8 }}>
+            <RobotOutlined /> 自然语言添加成员
+          </Text>
+          <TextArea
+            style={{ width: "100%", marginBottom: 8 }}
+            placeholder='例如："帮我添加一个擅长写文案的Agent"'
+            value={recruitInput}
+            onChange={(e) => setRecruitInput(e.target.value)}
+            rows={2}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+          />
+          <Button
+            type="dashed"
+            icon={<RobotOutlined />}
+            loading={recruiting}
+            disabled={!recruitInput.trim()}
+            onClick={handleRecruitMembers}
+            block
+          >
+            智能添加
+          </Button>
+        </div>
+
+        <Divider>或手动选择</Divider>
+
+        {/* Manual select */}
+        <div style={{ marginBottom: 16 }}>
           <Select
             style={{ width: "100%" }}
             placeholder="选择 Agent..."

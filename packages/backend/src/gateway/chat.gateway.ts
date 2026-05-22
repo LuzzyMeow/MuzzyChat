@@ -15,6 +15,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentLoopService } from '../agent-loop/agent-loop.service';
+import { ParallelOrchestrator } from '../orchestration/parallel-orchestrator.service';
+import { SupervisorEngine } from '../orchestration/supervisor-engine.service';
 import { MessageType } from '../../generated/prisma/enums';
 
 const VALID_MESSAGE_TYPES = new Set<string>(Object.values(MessageType));
@@ -36,6 +38,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => AgentLoopService))
     private readonly agentLoopService: AgentLoopService,
+    @Inject(forwardRef(() => ParallelOrchestrator))
+    private readonly parallelOrchestrator: ParallelOrchestrator,
+    @Inject(forwardRef(() => SupervisorEngine))
+    private readonly supervisorEngine: SupervisorEngine,
   ) {}
 
   handleConnection(client: Socket) {
@@ -264,8 +270,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ── Agent loop trigger ──────────────────────────────────────
 
   /**
-   * Determine which agents should respond to a user message
-   * and spawn their ReAct loops asynchronously.
+   * Determine which agents should respond to a user message.
+   * Routes based on orchestrationMode (Phase 3):
+   * - parallel → ParallelOrchestrator.triggerRound()
+   * - supervisor → SupervisorEngine.start()
+   * - DM (no group) → direct AgentLoopService.runAgentLoop()
    */
   private triggerAgentResponse(
     conversationId: string,
@@ -287,16 +296,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
 
         if (chatGroup && chatGroup.members.length > 0) {
-          // Group: trigger all enabled members
-          for (const member of chatGroup.members) {
-            this.agentLoopService.runAgentLoop({
-              agentId: member.agentId,
+          // Phase 3: Route based on orchestrationMode
+          if (chatGroup.orchestrationMode === 'supervisor') {
+            // Supervisor mode (02-群聊设计 §四)
+            const supervisorAgentId = chatGroup.supervisorAgentId ?? chatGroup.members[0].agentId;
+            await this.supervisorEngine.start({
               conversationId,
-              userMessage: `[Group Chat - ${chatGroup.name}] ${userMessage}`,
+              supervisorAgentId,
+              userMessage,
+              members: chatGroup.members,
+            });
+          } else {
+            // Parallel mode (02-群聊设计 §一)
+            await this.parallelOrchestrator.triggerRound({
+              conversationId,
+              userMessage,
+              groupName: chatGroup.name,
+              dynamicDiscussionEnabled: chatGroup.dynamicDiscussionEnabled,
             });
           }
         } else if (agentId) {
-          // DM: trigger the specified agent
+          // DM: trigger the specified agent (unchanged)
           this.agentLoopService.runAgentLoop({
             agentId,
             conversationId,

@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ChatGateway } from './chat.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentLoopService } from '../agent-loop/agent-loop.service';
+import { ParallelOrchestrator } from '../orchestration/parallel-orchestrator.service';
+import { SupervisorEngine } from '../orchestration/supervisor-engine.service';
 
 describe('ChatGateway', () => {
   let gateway: ChatGateway;
@@ -34,6 +36,16 @@ describe('ChatGateway', () => {
     resumeLoop: jest.fn(),
   };
 
+  const mockParallelOrchestrator = {
+    triggerRound: jest.fn(),
+    interruptRound: jest.fn(),
+    getRoundState: jest.fn(),
+  };
+
+  const mockSupervisorEngine = {
+    start: jest.fn(),
+  };
+
   const mockServer = {
     to: jest.fn().mockReturnThis(),
     emit: jest.fn(),
@@ -57,6 +69,14 @@ describe('ChatGateway', () => {
         {
           provide: AgentLoopService,
           useValue: mockAgentLoopService,
+        },
+        {
+          provide: ParallelOrchestrator,
+          useValue: mockParallelOrchestrator,
+        },
+        {
+          provide: SupervisorEngine,
+          useValue: mockSupervisorEngine,
         },
       ],
     }).compile();

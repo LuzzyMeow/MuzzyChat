@@ -146,7 +146,7 @@ pnpm dev:frontend  # http://localhost:5173
 |:---|:---|:---|
 | Phase 1 | 基础设施：项目骨架、数据库、Agent 工坊 | 已完成 |
 | Phase 2 | 核心对话：Agent CRUD + LLM Service + Conversation + ChatGroup + Agent ReAct Loop + HITL 审批 + AuditTrail + WebSocket Gateway + 7个工具 + Model Provider CRUD + Settings API + 前端全页面（含 SettingsPage + 成员管理） | ✅ 已完成 |
-| Phase 3 | 双模式引擎：Parallel + Supervisor 发言模式 | 待开始 |
+| Phase 3 | 双模式引擎：Parallel (7态状态机) + Supervisor (执行计划引擎) + DynamicDiscussion (N×3轮次) + LoopDetector (TF-IDF+LLM) + 一句话招募 + 前端模式切换 + TaskBoard | ✅ 已完成 |
 | Phase 4 | 工具与安全：文件交互、命令行、审批卡 | 待开始 |
 | Phase 5 | 记忆与学习：ACE 三层记忆 + 梦境系统 | 待开始 |
 | Phase 6 | Skill 系统：文件化 Skill 管理 + 市场 | 待开始 |
