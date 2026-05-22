@@ -115,11 +115,11 @@ export class AgentLoopService {
       });
 
       const finalContent = await this.processStream(
-        stream, threadId, { agentId, conversationId },
+        stream, threadId, { agentId, conversationId, agentName: agent.name },
       );
 
       // 7. Persist final message
-      await this.finalizeLoop(conversationId, agentId, finalContent);
+      await this.finalizeLoop(conversationId, agentId, agent.name, finalContent);
 
       this.logger.log(
         `Agent loop completed: ${agentId} in conversation ${conversationId}`,
@@ -177,10 +177,10 @@ export class AgentLoopService {
       );
 
       const finalContent = await this.processStream(
-        stream, active.threadId, { agentId: active.agentId, conversationId },
+        stream, active.threadId, { agentId: active.agentId, conversationId, agentName: agent.name },
       );
 
-      await this.finalizeLoop(conversationId, active.agentId, finalContent);
+      await this.finalizeLoop(conversationId, active.agentId, agent.name, finalContent);
 
       this.activeLoops.delete(key);
       this.logger.log(`Resumed loop completed: ${active.agentId}`);
@@ -208,7 +208,7 @@ export class AgentLoopService {
   private async processStream(
     stream: AsyncIterable<Record<string, unknown>>,
     threadId: string,
-    loopInfo: { agentId: string; conversationId: string },
+    loopInfo: { agentId: string; conversationId: string; agentName: string },
   ): Promise<string> {
     let finalContent = '';
     let isTimedOut = false;
@@ -284,6 +284,7 @@ export class AgentLoopService {
   private async finalizeLoop(
     conversationId: string,
     agentId: string,
+    agentName: string,
     finalContent: string,
   ): Promise<void> {
     if (finalContent) {
@@ -294,7 +295,8 @@ export class AgentLoopService {
         messageId: persisted.id,
         agentId,
         content: finalContent,
-        messageType: 'text',
+        agentName,
+        timestamp: new Date().toISOString(),
       });
     }
 

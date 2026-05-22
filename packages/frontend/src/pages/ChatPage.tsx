@@ -43,7 +43,7 @@ export default function ChatPage() {
 
     socket.on("disconnect", () => setConnected(false));
 
-    socket.on("message:complete", (payload: { message: ChatMessage }) => {
+    socket.on("message:complete", (payload: { message: ChatMessage; conversationId: string }) => {
       setMessages((prev) => [...prev, payload.message]);
     });
 

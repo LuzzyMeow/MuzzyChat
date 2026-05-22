@@ -458,15 +458,20 @@ describe('ChatGateway', () => {
         messageId: 'msg-001',
         agentId: 'agent-001',
         content: 'Full reply',
-        messageType: 'text',
+        agentName: 'TestAgent',
+        timestamp: '2025-01-01T00:00:00.000Z',
       });
 
       expect(mockServer.to).toHaveBeenCalledWith('conversation:conv-001');
       expect(mockServer.emit).toHaveBeenCalledWith('message:complete', {
-        messageId: 'msg-001',
-        agentId: 'agent-001',
-        content: 'Full reply',
-        messageType: 'text',
+        message: {
+          role: 'assistant',
+          content: 'Full reply',
+          agentId: 'agent-001',
+          agentName: 'TestAgent',
+          timestamp: '2025-01-01T00:00:00.000Z',
+        },
+        conversationId: 'conv-001',
       });
     });
 

@@ -94,10 +94,71 @@ export const executeCommandTool = tool(
   },
 );
 
+export const codeExecuteTool = tool(
+  async ({ code, language }) => {
+    // Write code to a temp file, execute via appropriate runtime, return output
+    const extMap: Record<string, string> = { python: '.py', javascript: '.js', typescript: '.ts', bash: '.sh' };
+    const ext = extMap[language ?? 'javascript'] ?? '.js';
+    const tmpFile = path.join(WORKSPACE_ROOT, 'code-exec', `temp_${Date.now()}${ext}`);
+    await fs.mkdir(path.dirname(tmpFile), { recursive: true });
+    await fs.writeFile(tmpFile, code, 'utf-8');
+    const runner = language === 'python' ? 'python' : 'node';
+    try {
+      const { stdout, stderr } = await execAsync(`${runner} "${tmpFile}"`, {
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      });
+      await fs.unlink(tmpFile).catch(() => {});
+      return `stdout:\n${stdout.slice(0, 4000)}\n${stderr ? `stderr:\n${stderr.slice(0, 2000)}` : ''}`;
+    } catch (error) {
+      await fs.unlink(tmpFile).catch(() => {});
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      return `Code execution error: ${msg}`;
+    }
+  },
+  {
+    name: 'code_execute',
+    description: 'Execute a code snippet. REQUIRES USER APPROVAL before execution.',
+    schema: z.object({
+      code: z.string().describe('The code to execute'),
+      language: z.enum(['python', 'javascript', 'typescript', 'bash']).default('javascript').describe('Programming language'),
+    }),
+  },
+);
+
+// ── Low-risk network tools (no approval) ──────────────────────
+
+export const webSearchTool = tool(
+  async ({ query }) => {
+    return `[WebSearch placeholder] Query: "${query}"\nResult: Web search capability will be integrated in Phase 4 (工具与安全).`;
+  },
+  {
+    name: 'web_search',
+    description: 'Search the web for information.',
+    schema: z.object({
+      query: z.string().describe('Search query string'),
+    }),
+  },
+);
+
+export const webFetchTool = tool(
+  async ({ url }) => {
+    return `[WebFetch placeholder] URL: "${url}"\nResult: Web fetch capability will be integrated in Phase 4 (工具与安全).`;
+  },
+  {
+    name: 'web_fetch',
+    description: 'Fetch and extract content from a web page.',
+    schema: z.object({
+      url: z.string().describe('Full URL to fetch'),
+    }),
+  },
+);
+
 // ── Tool registry ─────────────────────────────────────────────
 
-/** Tools that require user approval (HITL breakpoint). */
-export const HIGH_RISK_TOOLS = new Set(['write_file', 'execute_command']);
+/** Tools that require user approval (HITL breakpoint).
+ *  Per project spec §3.4: code_execute shares the same approval level as execute_command. */
+export const HIGH_RISK_TOOLS = new Set(['write_file', 'execute_command', 'code_execute']);
 
 /** All available tools. */
 export const ALL_TOOLS = [
@@ -105,6 +166,9 @@ export const ALL_TOOLS = [
   listFilesTool,
   writeFileTool,
   executeCommandTool,
+  codeExecuteTool,
+  webSearchTool,
+  webFetchTool,
 ] as const;
 
 /** Name → tool map for O(1) lookup during tool execution. */

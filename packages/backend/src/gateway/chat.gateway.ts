@@ -315,9 +315,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     messageId: string;
     agentId: string;
     content: string;
-    messageType?: string;
+    agentName?: string;
+    timestamp: string;
   }) {
-    this.server.to(`conversation:${conversationId}`).emit('message:complete', data);
+    this.server.to(`conversation:${conversationId}`).emit('message:complete', {
+      message: {
+        role: 'assistant',
+        content: data.content,
+        agentId: data.agentId,
+        agentName: data.agentName,
+        timestamp: data.timestamp,
+      },
+      conversationId,
+    });
   }
 
   emitAgentThinking(conversationId: string, data: {
