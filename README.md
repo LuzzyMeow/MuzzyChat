@@ -35,7 +35,7 @@ MuzzyChat 旨在构建一套**从底层架构到上层体验完全自主可控**
 | 缓存/队列 | Upstash Redis + BullMQ |
 | Agent 运行时 | LangGraph.js |
 | LLM 调用 | LangChain.js SDK 直连（@langchain/openai、@langchain/anthropic 等） |
-| 测试 | Vitest + Playwright |
+| 测试 | Jest (后端) + Vitest (前端) + Playwright (E2E) |
 | 包管理 | pnpm workspace monorepo |
 
 ## 项目结构
@@ -58,8 +58,11 @@ MuzzyChat/
 │   │       └── main.ts         # 入口
 │   └── frontend/               # React 前端
 │       ├── src/
+│       │   ├── api/            # API 服务层（fetch + SWR）
+│       │   ├── layout/         # 通用布局组件（Sider + Content）
 │       │   ├── pages/          # 页面组件
 │       │   ├── stores/         # zustand 状态管理
+│       │   ├── types/          # 前端类型定义
 │       │   ├── App.tsx         # 根组件
 │       │   └── main.tsx        # 入口
 │       └── e2e/                # Playwright E2E 测试
@@ -119,7 +122,7 @@ pnpm db:generate
 pnpm dev
 
 # 或分别启动
-pnpm dev:backend   # http://localhost:3000
+pnpm dev:backend   # http://localhost:3001
 pnpm dev:frontend  # http://localhost:5173
 ```
 
@@ -142,12 +145,12 @@ pnpm dev:frontend  # http://localhost:5173
 | 阶段 | 内容 | 状态 |
 |:---|:---|:---|
 | Phase 1 | 基础设施：项目骨架、数据库、Agent 工坊 | 已完成 |
-| Phase 2 | 核心对话：单 Agent 私聊 + 多 Agent 群聊 | 进行中（Agent CRUD + LLM Service + Conversation + ChatGroup + Agent ReAct Loop + HITL 审批 已完成，10 轮代码审查全部通过；第 11 轮修复：空消息验证、决策合法性验证、Agent 存在性验证、流处理逻辑重构、测试用例补全） |
+| Phase 2 | 核心对话：Agent CRUD + LLM Service + Conversation + ChatGroup + Agent ReAct Loop + HITL 审批 + AuditTrail + WebSocket Gateway + 前端全页面已完成；仅 Settings/Skills/Memories 占位待实现 | 基本完成 |
 | Phase 3 | 双模式引擎：Parallel + Supervisor 发言模式 | 待开始 |
 | Phase 4 | 工具与安全：文件交互、命令行、审批卡 | 待开始 |
 | Phase 5 | 记忆与学习：ACE 三层记忆 + 梦境系统 | 待开始 |
 | Phase 6 | Skill 系统：文件化 Skill 管理 + 市场 | 待开始 |
-| Phase 7 | TRPG 模式：完整跑团功能集成 | 技术设计 v1.2 已完成 |
+| Phase 7 | TRPG 模式：完整跑团功能集成 | 待开始 |
 | Phase 8 | 优化与发布：性能、监控、部署 | 待开始 |
 
 ## 许可证

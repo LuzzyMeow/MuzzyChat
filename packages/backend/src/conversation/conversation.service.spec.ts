@@ -44,30 +44,54 @@ describe('ConversationService', () => {
   describe('findAll', () => {
     it('should return all non-deleted conversations ordered by createdAt desc', async () => {
       const conversations = [
-        { id: '1', type: 'group', title: 'Test Group' },
+        { id: '1', type: 'group', title: 'Test Group', messages: [] },
       ];
       mockPrisma.conversation.findMany.mockResolvedValue(conversations);
 
       const result = await service.findAll();
-      expect(result).toEqual(conversations);
+      expect(result).toEqual([
+        { id: '1', type: 'group', title: 'Test Group', participantAgentId: null, messages: undefined },
+      ]);
       expect(mockPrisma.conversation.findMany).toHaveBeenCalledWith({
         where: { deletedAt: null },
         orderBy: { createdAt: 'desc' },
         omit: { deletedAt: true },
+        include: {
+          messages: {
+            where: { role: { in: ['agent', 'user'] } },
+            select: { agentId: true, role: true },
+            take: 1,
+            orderBy: { createdAt: 'asc' },
+          },
+        },
       });
     });
   });
 
   describe('findById', () => {
     it('should find conversation by id', async () => {
-      const conv = { id: '1', type: 'dm', title: 'DM' };
+      const conv = { id: '1', type: 'dm', title: 'DM', messages: [{ agentId: 'agent-1', role: 'agent' }] };
       mockPrisma.conversation.findFirst.mockResolvedValue(conv);
-      expect(await service.findById('1')).toEqual(conv);
+      expect(await service.findById('1')).toEqual({
+        id: '1', type: 'dm', title: 'DM', participantAgentId: 'agent-1', messages: undefined,
+      });
     });
 
     it('should return null when not found', async () => {
       mockPrisma.conversation.findFirst.mockResolvedValue(null);
       expect(await service.findById('nonexistent')).toBeNull();
+      expect(mockPrisma.conversation.findFirst).toHaveBeenCalledWith({
+        where: { id: 'nonexistent', deletedAt: null },
+        omit: { deletedAt: true },
+        include: {
+          messages: {
+            where: { role: { in: ['agent', 'user'] } },
+            select: { agentId: true, role: true },
+            take: 1,
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      });
     });
   });
 

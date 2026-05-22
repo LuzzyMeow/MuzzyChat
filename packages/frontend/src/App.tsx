@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ConfigProvider, App as AntApp } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import AppLayout from "./layout/AppLayout";
 import HomePage from "./pages/HomePage";
 import ChatPage from "./pages/ChatPage";
 import DMPage from "./pages/DMPage";
@@ -17,15 +18,17 @@ function App() {
       <AntApp>
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/chat/:id" element={<ChatPage />} />
-            <Route path="/dm/:agentId" element={<DMPage />} />
-            <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/agents/:id" element={<AgentDetailPage />} />
-            <Route path="/new-group" element={<NewGroupPage />} />
-            <Route path="/skills" element={<SkillsPage />} />
-            <Route path="/memories" element={<MemoriesPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/chat/:id" element={<ChatPage />} />
+              <Route path="/dm/:agentId" element={<DMPage />} />
+              <Route path="/agents" element={<AgentsPage />} />
+              <Route path="/agents/:id" element={<AgentDetailPage />} />
+              <Route path="/new-group" element={<NewGroupPage />} />
+              <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/memories" element={<MemoriesPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Route>
           </Routes>
         </BrowserRouter>
       </AntApp>

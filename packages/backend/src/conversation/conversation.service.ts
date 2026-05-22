@@ -10,18 +10,52 @@ export class ConversationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
-    return this.prisma.conversation.findMany({
+    const conversations = await this.prisma.conversation.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
       omit: { deletedAt: true },
+      include: {
+        messages: {
+          where: { role: { in: ['agent', 'user'] } },
+          select: { agentId: true, role: true },
+          take: 1,
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
+
+    return conversations.map((c) => ({
+      ...c,
+      // For DM conversations, extract the participant agentId from the first message
+      participantAgentId: c.type === 'dm'
+        ? c.messages[0]?.agentId ?? null
+        : null,
+      messages: undefined,
+    }));
   }
 
   async findById(id: string) {
-    return this.prisma.conversation.findFirst({
+    const conversation = await this.prisma.conversation.findFirst({
       where: { id, deletedAt: null },
       omit: { deletedAt: true },
+      include: {
+        messages: {
+          where: { role: { in: ['agent', 'user'] } },
+          select: { agentId: true, role: true },
+          take: 1,
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
+    if (!conversation) return null;
+
+    return {
+      ...conversation,
+      participantAgentId: conversation.type === 'dm'
+        ? conversation.messages[0]?.agentId ?? null
+        : null,
+      messages: undefined,
+    };
   }
 
   async create(dto: CreateConversationDto) {
