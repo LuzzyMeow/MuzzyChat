@@ -14,6 +14,8 @@ import { ModelProviderModule } from './model-provider/model-provider.module';
 import { SettingsModule } from './settings/settings.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
 import { SecurityModule } from './security/security.module';
+import { AceModule } from './ace/ace.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 
 /**
  * Walk up from startDir to find the monorepo root containing `.env`.
@@ -51,6 +53,8 @@ function findEnvPath(startDir: string): string {
     SettingsModule,
     OrchestrationModule,
     SecurityModule,
+    AceModule,
+    EventEmitterModule.forRoot(),
   ],
   controllers: [AppController],
 })

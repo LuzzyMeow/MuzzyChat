@@ -148,7 +148,7 @@ pnpm dev:frontend  # http://localhost:5173
 | Phase 2 | 核心对话：Agent CRUD + LLM Service + Conversation + ChatGroup + Agent ReAct Loop + HITL 审批 + AuditTrail + WebSocket Gateway + 7个工具 + Model Provider CRUD + Settings API + 前端全页面（含 SettingsPage + 成员管理） | ✅ 已完成 |
 | Phase 3 | 双模式引擎：Parallel (7态状态机) + Supervisor (执行计划引擎) + DynamicDiscussion (N×3轮次) + LoopDetector (TF-IDF+LLM) + 一句话招募 + 前端模式切换 + TaskBoard | ✅ 已完成（第18轮审查 4 项问题已修复） |
 | Phase 4 | 工具与安全：风险规则引擎 (42条) + 间接调用检测 (递归深度3) + 会话白名单 (Redis) + 审计日志 (不可篡改) + 审批超时 (5min) + 统一工具编排 + web_search/web_fetch 真实实现 | ✅ 已完成 |
-| Phase 5 | 记忆与学习：ACE 三层记忆 + 梦境系统 | 待开始 |
+| Phase 5 | 记忆与学习：ACE Generator (攒批+LLM) + Reflector (合并+删除) + Curator (scope自动设定) + Retrieval (pgvector Top-K) + LlmService.embedText() | ✅ 已完成 |
 | Phase 6 | Skill 系统：文件化 Skill 管理 + 市场 | 待开始 |
 | Phase 7 | TRPG 模式：完整跑团功能集成 | 待开始 |
 | Phase 8 | 优化与发布：性能、监控、部署 | 待开始 |

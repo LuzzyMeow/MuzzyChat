@@ -71,6 +71,32 @@ export class LlmService implements OnModuleDestroy {
     }
   }
 
+  /** Generate embedding vector for a text using the default embedding model. */
+  async embedText(text: string): Promise<number[]> {
+    const config = await this.resolveEmbeddingConfig();
+    const url = `${config.apiBase}/embeddings`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.modelId,
+        input: text,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) {
+      const errText = await response.text().catch(() => 'Unknown');
+      throw new Error(`Embedding API error ${response.status}: ${errText}`);
+    }
+    const data = await response.json() as {
+      data: Array<{ embedding: number[] }>;
+    };
+    return data.data[0].embedding;
+  }
+
   // ── Internal ──────────────────────────────────────────────────
 
   private async resolveConfig(providerModelId: string): Promise<ModelConfig> {
@@ -108,6 +134,28 @@ export class LlmService implements OnModuleDestroy {
       );
     }
     return candidates[0];
+  }
+
+  /** Resolve embedding model with full provider config (apiBase + apiKey). */
+  private async resolveEmbeddingConfig(): Promise<{
+    apiBase: string; apiKey: string; modelId: string;
+  }> {
+    const candidate = await this.prisma.providerModel.findFirst({
+      where: { roleHints: { has: 'embedding' } },
+      include: { provider: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!candidate) {
+      throw new NotFoundException(
+        'No model configured for role "embedding". ' +
+        'Please add a ProviderModel with role_hints containing "embedding".',
+      );
+    }
+    return {
+      apiBase: candidate.provider.apiBase,
+      apiKey: candidate.provider.apiKeyEncrypted,
+      modelId: candidate.modelId,
+    };
   }
 
   private buildModel(config: ModelConfig): ChatOpenAI {
