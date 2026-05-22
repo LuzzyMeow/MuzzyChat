@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
+import { ExportViewService } from './export-view.service';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 // ── Types (04-记忆与学习系统设计 §2.1) ───────────────────
@@ -106,6 +110,8 @@ export class DreamService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly llmService: LlmService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly exportView: ExportViewService,
   ) {}
 
   // ── Public API ──────────────────────────────────────────
@@ -472,6 +478,7 @@ export class DreamService {
 
     const checkpoint: CheckpointItem[] = [];
     let promotedCount = 0;
+    const promotedMemories: { memoryId: string; content: string; score: number; embedding: number[] }[] = [];
 
     for (let i = 0; i < candidates.length; i++) {
       const candidate = candidates[i];
@@ -510,7 +517,7 @@ export class DreamService {
           );
           const embeddingStr = `[${embedding.join(',')}]`;
 
-          await this.prisma.longTermMemory.create({
+          const created = await this.prisma.longTermMemory.create({
             data: {
               agentId,
               content: candidate.content,
@@ -528,12 +535,18 @@ export class DreamService {
           });
 
           await this.prisma.$executeRawUnsafe(
-            `UPDATE long_term_memories SET embedding = $1::vector WHERE id = (SELECT id FROM long_term_memories WHERE agent_id = $2 ORDER BY created_at DESC LIMIT 1)`,
+            `UPDATE long_term_memories SET embedding = $1::vector WHERE id = $2`,
             embeddingStr,
-            agentId,
+            created.id,
           );
 
           promotedCount++;
+          promotedMemories.push({
+            memoryId: created.id,
+            content: candidate.content,
+            score: compositeScore,
+            embedding,
+          });
         } catch (error) {
           const msg = error instanceof Error ? error.message : 'Unknown';
           this.logger.warn(`Failed to promote memory for candidate ${i}: ${msg}`);
@@ -552,10 +565,50 @@ export class DreamService {
 
     this.logger.debug(`Deep sleep completed: ${promotedCount} memories promoted`);
 
+    if (promotedCount > 0) {
+      this.eventEmitter.emit('dream.memory_produced', {
+        type: 'dream.memory_produced',
+        payload: {
+          sweepId,
+          agentId,
+          promotedMemories: promotedMemories.map((m) => ({
+            memoryId: m.memoryId,
+            content: m.content.slice(0, 200),
+            score: Math.round(m.score * 10000) / 10000,
+          })),
+          promotedCount,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      this.writeMemoryMd(agentId).catch((err) =>
+        this.logger.warn(`Memory export failed: ${err}`),
+      );
+      this.writeDreamsMd(agentId).catch((err) =>
+        this.logger.warn(`Dreams export failed: ${err}`),
+      );
+    }
+
     return deepState;
   }
 
   // ── Scoring (04 §2.2) ──────────────────────────────────
+
+  private async writeMemoryMd(agentId: string): Promise<void> {
+    const md = await this.exportView.generateMemoryMd(agentId);
+    const workspaceDir = path.join(process.cwd(), 'workspace', agentId);
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.writeFile(path.join(workspaceDir, 'MEMORY.md'), md, 'utf-8');
+    this.logger.debug(`MEMORY.md written for agent ${agentId}`);
+  }
+
+  private async writeDreamsMd(agentId: string): Promise<void> {
+    const md = await this.exportView.generateDreamsMd(agentId);
+    const workspaceDir = path.join(process.cwd(), 'workspace', agentId);
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.writeFile(path.join(workspaceDir, 'DREAMS.md'), md, 'utf-8');
+    this.logger.debug(`DREAMS.md written for agent ${agentId}`);
+  }
 
   private normalizeScores(raw: {
     frequency: number;

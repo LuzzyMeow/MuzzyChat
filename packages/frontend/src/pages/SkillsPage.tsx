@@ -16,7 +16,6 @@ import {
   AppstoreOutlined,
   SearchOutlined,
   MergeCellsOutlined,
-  ToolOutlined,
 } from "@ant-design/icons";
 import useSWR from "swr";
 import { skillApi, type Skill } from "../api/dream-skill";

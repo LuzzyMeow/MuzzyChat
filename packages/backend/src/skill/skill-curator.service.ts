@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
 import * as fs from 'fs/promises';
@@ -180,6 +181,43 @@ export class SkillCuratorService {
     );
 
     return result;
+  }
+
+  @OnEvent('strategy.failure')
+  async handleStrategyFailure(event: { type: string; payload: { embedding: number[] } }): Promise<void> {
+    const embedding = event.payload?.embedding;
+    if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+      this.logger.debug('strategy.failure received but no embedding in payload, skipping skill match');
+      return;
+    }
+
+    try {
+      const embeddingStr = `[${embedding.join(',')}]`;
+      const matchedSkills: unknown[] = await this.prisma.$queryRawUnsafe(
+        `SELECT id, name, 1 - (embedding <=> $1::vector) AS similarity
+         FROM skills
+         WHERE status = 'active' AND embedding IS NOT NULL
+         ORDER BY embedding <=> $1::vector
+         LIMIT 3`,
+        embeddingStr,
+      );
+
+      for (const row of matchedSkills) {
+        const skill = row as { id: string; name: string; similarity: number };
+        if (Number(skill.similarity) > 0.7) {
+          await this.prisma.skill.update({
+            where: { id: skill.id },
+            data: { status: 'stale' },
+          });
+          this.logger.log(
+            `Skill "${skill.name}" (${skill.id}) marked stale due to strategy.failure (similarity: ${Number(skill.similarity).toFixed(3)})`,
+          );
+        }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      this.logger.warn(`strategy.failure handler error: ${msg}`);
+    }
   }
 
   // ── Internal ────────────────────────────────────────────

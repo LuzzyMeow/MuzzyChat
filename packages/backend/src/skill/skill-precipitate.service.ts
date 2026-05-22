@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
 import * as fs from 'fs/promises';
@@ -80,6 +81,7 @@ export class SkillPrecipitateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly llmService: LlmService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     this.skillsBaseDir = path.join(process.cwd(), 'skills');
   }
@@ -198,6 +200,39 @@ export class SkillPrecipitateService {
         successRate,
       },
     });
+
+    const recentLogs = await this.prisma.skillUsageLog.findMany({
+      where: { skillId },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    const consecutiveSuccess =
+      recentLogs.length >= 5 && recentLogs.every((l) => l.success);
+
+    if (consecutiveSuccess) {
+      const embedding = await this.llmService
+        .embedText(`${skill.name} ${skill.description}`)
+        .catch(() => [] as number[]);
+
+      this.eventEmitter.emit('skill.success_trend', {
+        type: 'skill.success_trend',
+        payload: {
+          skillId: skill.id,
+          skillName: skill.name,
+          skillDescription: skill.description,
+          skillEmbedding: embedding,
+          consecutiveSuccesses: recentLogs.length,
+          totalUsageCount: totalUses,
+          successRate: Math.round(successRate * 10000) / 10000,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      this.logger.log(
+        `Skill ${skill.name} (${skill.id}) achieved ${recentLogs.length} consecutive successes — success_trend emitted`,
+      );
+    }
   }
 
   // ── Internal ────────────────────────────────────────────

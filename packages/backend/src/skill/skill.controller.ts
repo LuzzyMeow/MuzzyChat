@@ -1,6 +1,6 @@
 import { Controller, Post, Param, Get, Query } from '@nestjs/common';
 import { SkillPrecipitateService } from './skill-precipitate.service';
-import { SkillCuratorProcessor, SKILL_CURATOR_QUEUE } from './skill-curator.processor';
+import { SkillCuratorProcessor } from './skill-curator.processor';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('skill')

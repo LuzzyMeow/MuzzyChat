@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import React from "react";
 import {
   Card,
   Table,
@@ -21,7 +22,7 @@ import {
   FileTextOutlined,
 } from "@ant-design/icons";
 import useSWR from "swr";
-import { dreamApi, type DreamSweep, type LongTermMemory } from "../api/dream-skill";
+import { dreamApi, type LongTermMemory } from "../api/dream-skill";
 import { get } from "../api/client";
 import type { Agent } from "../types/agent";
 
@@ -43,7 +44,7 @@ export default function MemoriesPage() {
     () => dreamApi.getSweeps(agentId, 20),
   );
 
-  const { data: memories, mutate: mutateMemories } = useSWR(
+  const { data: memories } = useSWR(
     agentId ? `/dream/memories/${agentId}` : null,
     () => dreamApi.getMemories(agentId, 50),
   );

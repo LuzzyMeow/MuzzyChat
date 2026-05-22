@@ -11,7 +11,7 @@ export class ExportViewService {
     const memories = await this.prisma.longTermMemory.findMany({
       where: { agentId },
       orderBy: { score: 'desc' },
-      take: 200,
+      take: 500,
     });
 
     const agent = await this.prisma.agent.findUnique({
@@ -24,20 +24,24 @@ export class ExportViewService {
       '',
       `> 自动生成于 ${new Date().toISOString()} | 共 ${memories.length} 条记忆`,
       '',
+      `## 统计`,
+      '',
+      `| 分数区间 | 数量 |`,
+      `|----------|------|`,
+      `| ≥ 0.8 | ${memories.filter((m) => Number(m.score) >= 0.8).length} |`,
+      `| 0.6 - 0.8 | ${memories.filter((m) => Number(m.score) >= 0.6 && Number(m.score) < 0.8).length} |`,
+      `| 0.45 - 0.6 | ${memories.filter((m) => Number(m.score) >= 0.45 && Number(m.score) < 0.6).length} |`,
+      `| < 0.45 | ${memories.filter((m) => Number(m.score) < 0.45).length} |`,
+      '',
     ];
 
-    const byScore = this.groupByScoreBucket(memories);
-    for (const [bucket, items] of byScore) {
-      lines.push(`## ${bucket}`);
+    const byCategory = this.groupByCategory(memories);
+    for (const [category, items] of byCategory) {
+      lines.push(`## ${category}`);
       lines.push('');
       for (const mem of items) {
-        const tags = mem.conceptualTags as Record<string, unknown> | null;
-        const tagStr =
-          tags && Array.isArray((tags as Record<string, unknown>).tags)
-            ? ((tags as Record<string, unknown>).tags as string[]).join(', ')
-            : '';
         lines.push(
-          `- **[${Number(mem.score).toFixed(2)}]** ${mem.content.slice(0, 200)}${tagStr ? ` _(${tagStr})_` : ''}`,
+          `- **[${Number(mem.score).toFixed(2)}]** ${mem.content.slice(0, 200)}`,
         );
       }
       lines.push('');
@@ -116,27 +120,43 @@ export class ExportViewService {
     return lines.join('\n');
   }
 
-  private groupByScoreBucket(
-    memories: { score: { toFixed(digits: number): string }; content: string; conceptualTags: unknown }[],
-  ): Map<string, { score: { toFixed(digits: number): string }; content: string; conceptualTags: unknown }[]> {
-    const buckets = new Map<string, { score: { toFixed(digits: number): string }; content: string; conceptualTags: unknown }[]>();
-    const bucketNames: [number, string][] = [
-      [0.8, '核心记忆 (≥0.8)'],
-      [0.6, '重要记忆 (0.6-0.8)'],
-      [0.45, '一般记忆 (0.45-0.6)'],
-      [0, '低优先记忆 (<0.45)'],
-    ];
+  private groupByCategory(
+    memories: { content: string; score: unknown; conceptualTags: unknown }[],
+  ): Map<string, { content: string; score: unknown }[]> {
+    const buckets = new Map<string, { content: string; score: unknown }[]>();
+    const defaultCategories = ['用户偏好', '工具使用经验', '任务模式', '通用原则'];
+
+    for (const cat of defaultCategories) {
+      buckets.set(cat, []);
+    }
+    const otherKey = '未分类';
+    buckets.set(otherKey, []);
 
     for (const mem of memories) {
-      for (const [threshold, name] of bucketNames) {
-        if (Number(mem.score) >= threshold) {
-          const existing = buckets.get(name) ?? [];
-          existing.push(mem);
-          buckets.set(name, existing);
+      const tags = mem.conceptualTags as Record<string, unknown> | null;
+      const tagList: string[] =
+        tags && Array.isArray((tags as Record<string, unknown>).tags)
+          ? ((tags as Record<string, unknown>).tags as string[])
+          : [];
+
+      let categorized = false;
+      for (const cat of defaultCategories) {
+        if (tagList.some((t: string) => t.includes(cat))) {
+          buckets.get(cat)!.push(mem);
+          categorized = true;
           break;
         }
       }
+      if (!categorized) {
+        buckets.get(otherKey)!.push(mem);
+      }
     }
+
+    for (const cat of defaultCategories) {
+      const items = buckets.get(cat)!;
+      items.sort((a, b) => Number(b.score) - Number(a.score));
+    }
+    buckets.get(otherKey)!.sort((a, b) => Number(b.score) - Number(a.score));
 
     return buckets;
   }
